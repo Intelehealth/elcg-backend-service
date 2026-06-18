@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:5.7
+    container_name: elcg-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-elcg}
+      MYSQL_USER: ${MYSQL_USER:-elcg}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-elcgpass}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  auth-gateway:
+    build:
+      context: ./auth-gateway
+      dockerfile: Dockerfile
+    container_name: elcg-auth-gateway
+    restart: unless-stopped
+    env_file: ./auth-gateway/.env
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  portal:
+    build:
+      context: ./portal
+      dockerfile: Dockerfile
+    container_name: elcg-portal
+    restart: unless-stopped
+    env_file: ./portal/.env
+    ports:
+      - "3002:3002"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web-rtc:
+    build:
+      context: ./web-rtc
+      dockerfile: Dockerfile
+    container_name: elcg-web-rtc
+    restart: unless-stopped
+    env_file: ./web-rtc/.env
+    ports:
+      - "3003:3003"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  configuration:
+    build:
+      context: ./configuration
+      dockerfile: Dockerfile
+    container_name: elcg-configuration
+    restart: unless-stopped
+    env_file: ./configuration/.env
+    ports:
+      - "3004:3004"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
