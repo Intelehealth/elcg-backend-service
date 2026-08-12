@@ -55,10 +55,9 @@ elcg-backend-service/
 
 ## Authoritative documents
 
-- **HLD**: `~/Documents/EZAZI Project/eZAZI_Tech_Revamp_HLD_v3_3.docx`
-- **ADRs**: `~/Documents/EZAZI Project/docs/adrs/`
-- **API contracts**: `~/Documents/EZAZI Project/api-docs/openapi.yaml`
-- **User stories (backend)**: `~/Documents/EZAZI Project/user-stories/eZAZI_User_Stories_Backend.xlsx`
+- **HLD**: `eZAZI_Tech_Revamp_HLD_v3_3.docx`
+- **API contracts**: `api-docs/openapi.yaml`
+- **User stories (backend)**: `eZAZI_User_Stories_Backend.xlsx`
 
 ## Lift-and-shift principle
 
