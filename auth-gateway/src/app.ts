@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import pinoHttp from 'pino-http';
 import { env } from '@/config/env';
 import { logger } from '@/utils/logger';
+import '@/db/models';
 import { requestId } from '@/middleware/request-id';
 import { errorHandler, notFoundHandler } from '@/middleware/error-handler';
 import healthRoutes from '@/modules/health/health.routes';

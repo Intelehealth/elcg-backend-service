@@ -14,7 +14,7 @@ openssl genrsa -out keys/jwt-private.pem 2048
 openssl rsa -in keys/jwt-private.pem -pubout -out keys/jwt-public.pem
 # start MySQL via root docker-compose
 ( cd .. && docker compose up -d mysql )
-npm run dev             # http://localhost:3001/health
+npm run dev             # http://localhost:3030/health
 ```
 
 ## Scripts

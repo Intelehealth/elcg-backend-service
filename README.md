@@ -35,7 +35,7 @@ nvm use                                # Node 20
 docker compose up -d mysql             # start MySQL 5.7
 cd auth-gateway && npm install
 cp .env.example .env                   # then edit
-npm run dev                            # http://localhost:3001/health
+npm run dev                            # http://localhost:3030/health
 ```
 
 ## Repository layout

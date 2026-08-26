@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-elcg}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-mindmap_server}
       MYSQL_USER: ${MYSQL_USER:-elcg}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-elcgpass}
     ports:
@@ -28,7 +28,7 @@ services:
     restart: unless-stopped
     env_file: ./auth-gateway/.env
     ports:
-      - "3001:3001"
+      - "3030:3030"
     depends_on:
       mysql:
         condition: service_healthy
@@ -41,7 +41,7 @@ services:
     restart: unless-stopped
     env_file: ./portal/.env
     ports:
-      - "3002:3002"
+      - "3004:3004"
     depends_on:
       mysql:
         condition: service_healthy
@@ -54,7 +54,7 @@ services:
     restart: unless-stopped
     env_file: ./web-rtc/.env
     ports:
-      - "3003:3003"
+      - "3000:3000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -67,7 +67,7 @@ services:
     restart: unless-stopped
     env_file: ./configuration/.env
     ports:
-      - "3004:3004"
+      - "4004:4004"
     depends_on:
       mysql:
         condition: service_healthy

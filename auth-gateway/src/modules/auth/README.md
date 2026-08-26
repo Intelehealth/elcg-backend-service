@@ -12,7 +12,7 @@ Endpoints for EZ Sprint 42 stories.
 | EZ-939 | `POST /auth/resetPassword/{userUuid}` | TODO |
 | EZ-941 | `POST /audit` (consent log — privacy notice) | TODO |
 | EZ-942 | `POST /auth/refresh` | TODO |
-| EZ-943 | `POST /auth/logout` (DB blacklist) | TODO |
+| EZ-943 | `POST /auth/logout` (DB blacklist) | PARTIAL — revokes the refresh family; access-token blacklist deferred, see `../jwt/README.md` |
 
 Stretch (defer if pressed):
 - EZ-940 Biometric is local-only on mobile — backend impact is **none** beyond JWT validation working correctly.

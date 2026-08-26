@@ -5,14 +5,24 @@ dotenv.config();
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(3001),
+  PORT: z.coerce.number().int().positive().default(3030),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
+  // Gateway-owned tables, hosted in the existing `mindmap_server` schema.
   DB_HOST: z.string(),
   DB_PORT: z.coerce.number().int().positive().default(3306),
   DB_NAME: z.string(),
   DB_USER: z.string(),
   DB_PASSWORD: z.string(),
+
+  // OpenMRS schema — the identity source of truth (users / provider / person).
+  // Defaults fall back to the DB_* credentials since both schemas normally live
+  // on the same MySQL 5.7 instance.
+  OPENMRS_DB_HOST: z.string().optional(),
+  OPENMRS_DB_PORT: z.coerce.number().int().positive().optional(),
+  OPENMRS_DB_NAME: z.string().default('openmrs'),
+  OPENMRS_DB_USER: z.string().optional(),
+  OPENMRS_DB_PASSWORD: z.string().optional(),
 
   JWT_ALGORITHM: z.literal('RS256').default('RS256'),
   JWT_PRIVATE_KEY_PATH: z.string(),

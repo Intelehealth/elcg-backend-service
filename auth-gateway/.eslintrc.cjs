@@ -5,7 +5,9 @@ module.exports = {
   parserOptions: {
     ecmaVersion: 2022,
     sourceType: "module",
-    project: "./tsconfig.json",
+    // Not tsconfig.json: that one excludes *.test.ts (they must not reach dist/),
+    // but the lint script globs src/**/*.ts, tests included.
+    project: "./tsconfig.eslint.json",
   },
   plugins: ["@typescript-eslint"],
   extends: [

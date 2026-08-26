@@ -4,4 +4,4 @@ eLCG portal service — Patient / Visit / Encounter / Labour / LCG / Prolonged-L
 
 **Status: stub.** Modules will be added in upcoming sprints. Healthcheck is up.
 
-Port: `3002`. Modules planned: see `~/Documents/EZAZI Project/user-stories/eZAZI_User_Stories_Backend.xlsx` → `portal` tab (~20 stories).
+Port: `3004`. Modules planned: see `~/Documents/EZAZI Project/user-stories/eZAZI_User_Stories_Backend.xlsx` → `portal` tab (~20 stories).
