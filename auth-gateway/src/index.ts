@@ -3,7 +3,6 @@ import { env } from '@/config/env';
 import { logger } from '@/utils/logger';
 import { connectDb, sequelize } from '@/db/sequelize';
 import { connectOpenmrsDb, openmrsSequelize } from '@/db/openmrs';
-//x=y
 async function main(): Promise<void> {
   const app = createApp();
 
