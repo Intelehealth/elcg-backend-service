@@ -88,6 +88,7 @@ async function issueTokenPair(
     expiresIn: access.expiresIn,
     refreshToken: refresh.token,
     refreshExpiresIn: refresh.expiresIn,
+    sessionId: refresh.jti,
   };
 }
 
@@ -140,6 +141,7 @@ export async function login(input: LoginRequest, context: RequestContext): Promi
 
   return {
     ...tokens,
+    authenticated: true,
     user: toUserPayload(identity),
     provider: toProviderPayload(identity),
   };
@@ -193,7 +195,9 @@ export async function refresh(
     deviceId: context.deviceId ?? stored.deviceId,
   });
 
-  await tokenRepository.markRotated(stored.jti, verifyRefreshToken(tokens.refreshToken).jti);
+  // tokens.sessionId is the new refresh token's jti — issueTokenPair already
+  // has it from signRefreshToken, so no need to re-verify the token just signed.
+  await tokenRepository.markRotated(stored.jti, tokens.sessionId);
 
   return tokens;
 }

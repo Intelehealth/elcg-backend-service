@@ -31,6 +31,14 @@ export interface OpenmrsIdentity {
     uuid: string;
     identifier: string | null;
     display: string | null;
+    person: {
+      uuid: string;
+      display: string;
+      gender: string | null;
+      age: number | null;
+      birthdate: string | null;
+      preferredName: string;
+    };
     attributes: Record<string, string>;
   } | null;
 }
@@ -65,6 +73,22 @@ export async function findUserByUuid(uuid: string): Promise<OpenmrsUser | null> 
       },
     ],
   });
+}
+
+/** Mirrors OpenMRS' own `person.age` virtual property — whole years since birthdate. */
+function calculateAge(birthdate: string | null): number | null {
+  if (!birthdate) return null;
+  const dob = new Date(birthdate);
+  if (Number.isNaN(dob.getTime())) return null;
+
+  const now = new Date();
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+  const hasHadBirthdayThisYear =
+    now.getUTCMonth() > dob.getUTCMonth() ||
+    (now.getUTCMonth() === dob.getUTCMonth() && now.getUTCDate() >= dob.getUTCDate());
+  if (!hasHadBirthdayThisYear) age -= 1;
+
+  return age;
 }
 
 function pickDisplayName(user: OpenmrsUser): string {
@@ -132,13 +156,14 @@ async function findProviderAttributes(providerId: number): Promise<Record<string
  *
  * `provider.name` is NULL for 436 of the 438 active providers in this database,
  * so it cannot be the display source on its own. The legacy endpoint did not use
- * it either — `v=custom:(uuid,person:(uuid,display,…))` returned the *person's*
- * name. Since the provider shares `person_id` with the user, that is the display
- * we already resolved, passed in here as the fallback.
+ * it either — `v=custom:(uuid,person:(uuid,display,gender,age,birthdate,
+ * preferredName),attributes)` returned the *person's* demographics. Since the
+ * provider shares `person_id` with the user, that is exactly what we already
+ * resolved for `UserPayload` — passed in here rather than re-queried.
  */
 async function findProvider(
   personId: number,
-  personDisplay: string,
+  person: { uuid: string; display: string; gender: string | null; birthdate: string | null },
 ): Promise<OpenmrsIdentity['provider']> {
   const provider = await Provider.findOne({ where: { personId, retired: false } });
   if (!provider) return null;
@@ -148,7 +173,15 @@ async function findProvider(
   return {
     uuid: provider.uuid,
     identifier: provider.identifier,
-    display: name && name.length > 0 ? name : personDisplay,
+    display: name && name.length > 0 ? name : person.display,
+    person: {
+      uuid: person.uuid,
+      display: person.display,
+      gender: person.gender,
+      age: calculateAge(person.birthdate),
+      birthdate: person.birthdate,
+      preferredName: person.display,
+    },
     attributes: await findProviderAttributes(provider.providerId),
   };
 }
@@ -160,18 +193,22 @@ async function findProvider(
  */
 export async function loadIdentity(user: OpenmrsUser): Promise<OpenmrsIdentity> {
   const display = pickDisplayName(user);
+  const personUuid = user.person?.uuid ?? '';
+  const gender = user.person?.gender ?? null;
+  const birthdate = user.person?.birthdate ?? null;
+
   const roles = await findRoles(user.userId);
   const [privileges, provider] = await Promise.all([
     findPrivileges(roles),
-    findProvider(user.personId, display),
+    findProvider(user.personId, { uuid: personUuid, display, gender, birthdate }),
   ]);
 
   return {
     user,
     display,
-    personUuid: user.person?.uuid ?? '',
-    gender: user.person?.gender ?? null,
-    birthdate: user.person?.birthdate ?? null,
+    personUuid,
+    gender,
+    birthdate,
     roles,
     privileges,
     provider,

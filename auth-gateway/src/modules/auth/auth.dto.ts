@@ -51,11 +51,24 @@ export interface UserPayload {
   privileges: string[];
 }
 
-/** Replaces what the legacy `GET /provider?user={uuid}` returned. */
+/**
+ * Replaces what the legacy `GET /provider?user={uuid}&v=custom:(uuid,person:(uuid,
+ * display,gender,age,birthdate,preferredName),attributes)` returned. The provider
+ * shares `person_id` with the user, so `person` here is the same demographics
+ * already resolved for `UserPayload` — no extra OpenMRS round-trip needed.
+ */
 export interface ProviderPayload {
   uuid: string;
   identifier: string | null;
   display: string | null;
+  person: {
+    uuid: string;
+    display: string;
+    gender: string | null;
+    age: number | null;
+    birthdate: string | null;
+    preferredName: string;
+  };
   attributes: Record<string, string>;
 }
 
@@ -65,10 +78,17 @@ export interface TokenPairPayload {
   expiresIn: number;
   refreshToken: string;
   refreshExpiresIn: number;
+  /** The new refresh token's `jti` — identifies this login session for clients that track one. */
+  sessionId: string;
 }
 
-/** The consolidated app-setup payload — replaces login + session + provider. */
+/**
+ * The consolidated app-setup payload — replaces the legacy three-call mobile
+ * flow (`GET /session` + `POST /auth/login` + `GET /provider?user=…`) with one.
+ */
 export interface LoginResponse extends TokenPairPayload {
+  /** Always `true` on a 200 — a failed login never reaches this shape. */
+  authenticated: true;
   user: UserPayload;
   provider: ProviderPayload | null;
 }

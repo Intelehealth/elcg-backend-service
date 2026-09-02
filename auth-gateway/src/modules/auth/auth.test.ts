@@ -50,6 +50,14 @@ function buildIdentity(overrides: Record<string, unknown> = {}) {
       uuid: '22222222-2222-4222-8222-222222222222',
       identifier: 'NUR-001',
       display: 'Asha Devi',
+      person: {
+        uuid: '33333333-3333-4333-8333-333333333333',
+        display: 'Asha Devi',
+        gender: 'F',
+        age: 36,
+        birthdate: '1990-04-01',
+        preferredName: 'Asha Devi',
+      },
       attributes: { 'Phone Number': '9999999999' },
     },
     ...overrides,
@@ -141,6 +149,8 @@ describe('POST /auth/login', () => {
     expect(res.body.tokenType).toBe('Bearer');
     expect(res.body.expiresIn).toBe(900); // 15 min
     expect(res.body.refreshExpiresIn).toBe(604800); // 7 d
+    expect(res.body.authenticated).toBe(true);
+    expect(res.body.sessionId).toEqual(expect.any(String));
 
     // The whole point of the consolidation: no follow-up session/provider calls.
     expect(res.body.user).toMatchObject({
@@ -150,7 +160,17 @@ describe('POST /auth/login', () => {
       roles: ['Organizational: Nurse', 'Provider'],
       privileges: ['View Patients', 'Add Encounters'],
     });
-    expect(res.body.provider).toMatchObject({ uuid: expect.any(String), identifier: 'NUR-001' });
+    expect(res.body.provider).toMatchObject({
+      uuid: expect.any(String),
+      identifier: 'NUR-001',
+      person: {
+        display: 'Asha Devi',
+        gender: 'F',
+        age: 36,
+        birthdate: '1990-04-01',
+        preferredName: 'Asha Devi',
+      },
+    });
 
     expect(mockedUserRepo.recordSuccessfulLogin).toHaveBeenCalledWith(42);
     expect(mockedTokenRepo.persist).toHaveBeenCalledWith(
