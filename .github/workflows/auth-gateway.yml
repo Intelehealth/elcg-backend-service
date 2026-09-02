@@ -119,9 +119,9 @@ jobs:
       ENV_FILE_PATH: /home/ubuntu/deploy/auth-gateway/.env
       PEM_FOLDER_PATH: /home/ubuntu/deploy/auth-gateway/.pem
       # All host secrets mapped upfront — dynamic secret refs aren't supported in GitHub Actions
-      REVAMP_HOST: ${{ secrets.DEV_HOST }}
-      REMOTE_USER: ${{ secrets.DEV_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_KEY }}
+      REVAMP_HOST: ${{ secrets.REVAMP_HOST }}
+      REMOTE_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY }}
     steps:
       - name: Resolve host for environment
         run: |
