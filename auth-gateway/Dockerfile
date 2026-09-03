@@ -6,6 +6,17 @@ RUN npm ci
 COPY src ./src
 RUN npm run build
 
+# ---- migrator ----
+# sequelize-cli lives in devDependencies and migrations/config are never part of
+# the runtime image below, so `docker exec <runtime container> npm run migrate`
+# cannot work — this stage carries what migrations actually need (built off
+# `builder`, which still has the full node_modules) and runs standalone,
+# never started as part of the normal app container.
+FROM builder AS migrator
+COPY migrations ./migrations
+COPY config ./config
+CMD ["npx", "sequelize-cli", "db:migrate"]
+
 # ---- runtime ----
 FROM node:20-alpine AS runtime
 WORKDIR /app
