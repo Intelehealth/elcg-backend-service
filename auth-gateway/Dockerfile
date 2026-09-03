@@ -13,6 +13,7 @@ RUN npm run build
 # `builder`, which still has the full node_modules) and runs standalone,
 # never started as part of the normal app container.
 FROM builder AS migrator
+COPY .sequelizerc ./
 COPY migrations ./migrations
 COPY config ./config
 CMD ["npx", "sequelize-cli", "db:migrate"]
