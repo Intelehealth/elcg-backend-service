@@ -99,7 +99,11 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t $DOCKER_IMAGE_NAME:${{ github.sha }} ./auth-gateway
-          docker save $DOCKER_IMAGE_NAME:${{ github.sha }} > app-image.tar
+          # migrator: sequelize-cli + migrations/config, none of which the runtime
+          # image carries (devDependencies are stripped, migrations/config are
+          # never COPYed) — `docker exec` into the app container cannot migrate.
+          docker build --target migrator -t $DOCKER_IMAGE_NAME-migrator:${{ github.sha }} ./auth-gateway
+          docker save $DOCKER_IMAGE_NAME:${{ github.sha }} $DOCKER_IMAGE_NAME-migrator:${{ github.sha }} > app-image.tar
 
       - name: Upload image artifact
         uses: actions/upload-artifact@v4
@@ -159,6 +163,7 @@ jobs:
             ENV_FILE_PATH="${{ env.ENV_FILE_PATH }}"
             PEM_FOLDER_PATH="${{ env.PEM_FOLDER_PATH }}"
             KEYS_FOLDER_PATH="${{ env.KEYS_FOLDER_PATH }}"
+            MIGRATIONS_CHANGED="${{ needs.build.outputs.migrations_changed }}"
 
             docker load -i /tmp/app-image.tar
             rm /tmp/app-image.tar
@@ -181,12 +186,19 @@ jobs:
               exit 1
             fi
 
+            if [ "\$MIGRATIONS_CHANGED" = "true" ]; then
+              echo "Running database migrations..."
+              docker run --rm \
+                --env-file \$ENV_FILE_PATH \
+                \$DOCKER_IMAGE_NAME-migrator:${{ github.sha }}
+            fi
+
             docker ps -a | grep auth-gateway | awk '{print $1}' | xargs -r docker rm -f || true
-        
+
             fuser -k 3030/tcp || true
-          
+
             sleep 2
-            
+
             docker run -d \
               --name \$DOCKER_IMAGE_NAME \
               --restart unless-stopped \
@@ -200,19 +212,6 @@ jobs:
             docker image prune -f
             echo "Auth-gateway deployment to ${{ matrix.environment }} completed successfully"
           EOF
-
-#      - name: Run migrations on ${{ matrix.environment }} host
-#        if: needs.build.outputs.migrations_changed == 'true'
-#        run: |
-##          mkdir -p ~/.ssh
-#          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
-#          chmod 600 ~/.ssh/deploy_key
-
-#          ssh -i ~/.ssh/deploy_key \
-#              -o StrictHostKeyChecking=no \
-#              -p $REMOTE_PORT \
-#              $REMOTE_USER@$REMOTE_HOST \
-#              "docker exec ${{ env.DOCKER_IMAGE_NAME }} npm run migrate"
 
       - name: Verify deployment on ${{ matrix.environment }}
         run: |
