@@ -118,6 +118,9 @@ jobs:
       REMOTE_PORT: 22
       ENV_FILE_PATH: /home/ubuntu/deploy/auth-gateway/.env
       PEM_FOLDER_PATH: /home/ubuntu/deploy/auth-gateway/.pem
+      # JWT signing keys — never baked into the image (keys/ is gitignored), so
+      # they live on the host and are bind-mounted in, same as the TLS certs.
+      KEYS_FOLDER_PATH: /home/ubuntu/deploy/auth-gateway/keys
       # All host secrets mapped upfront — dynamic secret refs aren't supported in GitHub Actions
       REVAMP_HOST: ${{ secrets.REVAMP_HOST }}
       REMOTE_USER: ${{ secrets.SSH_USER }}
@@ -155,6 +158,7 @@ jobs:
             DOCKER_IMAGE_NAME="${{ env.DOCKER_IMAGE_NAME }}"
             ENV_FILE_PATH="${{ env.ENV_FILE_PATH }}"
             PEM_FOLDER_PATH="${{ env.PEM_FOLDER_PATH }}"
+            KEYS_FOLDER_PATH="${{ env.KEYS_FOLDER_PATH }}"
 
             docker load -i /tmp/app-image.tar
             rm /tmp/app-image.tar
@@ -172,6 +176,11 @@ jobs:
               exit 1
             fi
 
+            if [ ! -d "\$KEYS_FOLDER_PATH" ]; then
+              echo "Error: JWT keys folder not found at \$KEYS_FOLDER_PATH"
+              exit 1
+            fi
+
             docker ps -a | grep auth-gateway | awk '{print $1}' | xargs -r docker rm -f || true
         
             fuser -k 3030/tcp || true
@@ -184,6 +193,7 @@ jobs:
               -p 3030:3030 \
               --env-file \$ENV_FILE_PATH \
               -v \$PEM_FOLDER_PATH:/app/.pem \
+              -v \$KEYS_FOLDER_PATH:/app/keys \
               --mount type=bind,src=/etc/letsencrypt,dst=/etc/letsencrypt,ro \
               \$DOCKER_IMAGE_NAME:${{ github.sha }}
 
