@@ -4,8 +4,12 @@ import {
   LoginRequestSchema,
   LogoutRequestSchema,
   RefreshRequestSchema,
+  RequestOtpSchema,
+  ResetPasswordSchema,
+  VerifyOtpSchema,
 } from '@/modules/auth/auth.dto';
 import * as authService from '@/modules/auth/auth.service';
+import * as otpService from '@/modules/otp/otp.service';
 import type { RequestContext } from '@/modules/auth/auth.service';
 
 function contextFrom(req: Request, deviceId?: string): RequestContext {
@@ -45,6 +49,27 @@ export async function logout(req: Request, res: Response): Promise<void> {
   });
 
   res.status(204).send();
+}
+
+/** EZ-933 `POST /auth/requestOtp` — always 200; see otp.service.ts for why. */
+export async function requestOtp(req: Request, res: Response): Promise<void> {
+  const body = RequestOtpSchema.parse(req.body);
+  await otpService.requestOtp(body);
+  res.status(200).json({ message: 'If the account exists, an OTP has been sent.' });
+}
+
+/** EZ-934 `POST /auth/verifyOtp` */
+export async function verifyOtp(req: Request, res: Response): Promise<void> {
+  const body = VerifyOtpSchema.parse(req.body);
+  const result = await otpService.verifyOtp(body);
+  res.status(200).json(result);
+}
+
+/** EZ-939 `POST /auth/resetPassword/:userUuid` — gated on verifyOtp's resetToken. */
+export async function resetPassword(req: Request, res: Response): Promise<void> {
+  const body = ResetPasswordSchema.parse(req.body);
+  await otpService.resetPassword(req.params.userUuid, body.newPassword, body.resetToken);
+  res.status(200).json({ message: 'Password reset successful.' });
 }
 
 /** EZ-920 `GET /auth/check` — splash-screen token validation. */

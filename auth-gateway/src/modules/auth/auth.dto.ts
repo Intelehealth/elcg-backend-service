@@ -34,9 +34,71 @@ export const LogoutRequestSchema = z.object({
   allDevices: z.boolean().optional().default(false),
 });
 
+/**
+ * EZ-933 `POST /auth/requestOtp` — password-reset only (see `otp/README.md`).
+ * The real client identifies the account by `phoneNumber`, not username —
+ * matches the legacy `mindmap-api-NAS` request shape. `countryCode`/`source`
+ * are accepted for contract compatibility; the code is actually sent to
+ * whatever phone/country code are on file for the matched account, not these
+ * values — see `otp.service.ts`.
+ */
+export const RequestOtpSchema = z.object({
+  otpFor: z.literal('password'),
+  phoneNumber: z
+    .string()
+    .trim()
+    .regex(/^\d{4,15}$/, 'phoneNumber must be 4-15 digits'),
+  countryCode: z
+    .string()
+    .trim()
+    .regex(/^\d{1,4}$/, 'countryCode must be digits only')
+    .optional(),
+  source: z.string().trim().max(20).optional(),
+});
+
+/** EZ-934 `POST /auth/verifyOtp` — same phone-based identification as requestOtp. */
+export const VerifyOtpSchema = z.object({
+  verifyFor: z.literal('password'),
+  phoneNumber: z
+    .string()
+    .trim()
+    .regex(/^\d{4,15}$/, 'phoneNumber must be 4-15 digits'),
+  countryCode: z
+    .string()
+    .trim()
+    .regex(/^\d{1,4}$/, 'countryCode must be digits only')
+    .optional(),
+  otp: z
+    .string()
+    .trim()
+    .regex(/^\d{4,10}$/, 'otp must be 4-10 digits'),
+});
+
+/** EZ-939 `POST /auth/resetPassword/:userUuid` — gated on verifyOtp's resetToken. */
+export const ResetPasswordSchema = z.object({
+  newPassword: z.string().min(8, 'newPassword must be at least 8 characters').max(255),
+  resetToken: z.string().min(1, 'resetToken is required'),
+});
+
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
 export type LogoutRequest = z.infer<typeof LogoutRequestSchema>;
+export type RequestOtpRequest = z.infer<typeof RequestOtpSchema>;
+export type VerifyOtpRequest = z.infer<typeof VerifyOtpSchema>;
+export type ResetPasswordRequest = z.infer<typeof ResetPasswordSchema>;
+
+export interface RequestOtpResponse {
+  message: string;
+}
+
+export interface VerifyOtpResponse {
+  verified: true;
+  /** The client has no other way to learn this — phone is its only identifier. */
+  userUuid: string;
+  /** Present to POST /auth/resetPassword/:userUuid as proof the OTP was verified. */
+  resetToken: string;
+  expiresIn: number;
+}
 
 /** Replaces what the legacy `GET /session` returned. */
 export interface UserPayload {

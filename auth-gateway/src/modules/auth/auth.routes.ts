@@ -21,6 +21,23 @@ const credentialRateLimit = rateLimit({
   },
 });
 
+/**
+ * Per-IP throttle for requestOtp/verifyOtp. Complements the per-phone limit
+ * enforced inside otp.service.ts (OTP_RATE_LIMIT_PER_HOUR) the same way
+ * credentialRateLimit complements the per-account login lockout: this stops one
+ * host spraying many phones/accounts, the service-layer check stops one phone
+ * being spammed via many hosts.
+ */
+const otpRateLimit = rateLimit({
+  windowMs: 60 * 60_000,
+  limit: env.OTP_RATE_LIMIT_PER_HOUR * 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: {
+    error: { code: 'RATE_LIMITED', message: 'Too many attempts, please try again later' },
+  },
+});
+
 // EZ-920 GET /auth/check — token validation for splash
 router.get('/check', requireAuth, authController.check);
 
@@ -33,19 +50,13 @@ router.post('/refresh', credentialRateLimit, asyncHandler(authController.refresh
 // EZ-943 POST /auth/logout — blacklist access token + revoke refresh family
 router.post('/logout', requireAuth, asyncHandler(authController.logout));
 
-// EZ-933 POST /auth/requestOtp
-router.post('/requestOtp', (_req, res) =>
-  res.status(501).json({ error: { code: 'NOT_IMPLEMENTED' } }),
-);
+// EZ-933 POST /auth/requestOtp — password-reset OTP via 2Factor/Twilio/Sparrow
+router.post('/requestOtp', otpRateLimit, asyncHandler(authController.requestOtp));
 
 // EZ-934 POST /auth/verifyOtp
-router.post('/verifyOtp', (_req, res) =>
-  res.status(501).json({ error: { code: 'NOT_IMPLEMENTED' } }),
-);
+router.post('/verifyOtp', otpRateLimit, asyncHandler(authController.verifyOtp));
 
-// EZ-939 POST /auth/resetPassword/:userUuid
-router.post('/resetPassword/:userUuid', (_req, res) =>
-  res.status(501).json({ error: { code: 'NOT_IMPLEMENTED' } }),
-);
+// EZ-939 POST /auth/resetPassword/:userUuid — gated on verifyOtp's resetToken, not a session
+router.post('/resetPassword/:userUuid', otpRateLimit, asyncHandler(authController.resetPassword));
 
 export default router;

@@ -151,6 +151,64 @@ async function findProviderAttributes(providerId: number): Promise<Record<string
   return attributes;
 }
 
+export interface AccountByPhone {
+  user: OpenmrsUser;
+  /** The phone/country code actually on file — may differ from the value that matched below. */
+  phoneNumber: string | null;
+  countryCode: string | null;
+}
+
+/**
+ * OTP's account lookup (`requestOtp`/`verifyOtp`) — the real client has no
+ * username/email at this point, only a phone number (see `otp/README.md`).
+ * Mirrors legacy's `provider_attribute` lookup (`pat.name = 'phoneNumber' AND
+ * pa.value_reference = phoneNumber`) exactly.
+ *
+ * Resolves the `Provider` row once and derives both the user and its phone
+ * attributes from it — `requestOtp` needs both, and re-querying `Provider` a
+ * second time (as an earlier version of this function did, via a separate
+ * `findUserPhone` helper) was pure waste: the row is already in hand here.
+ */
+export async function findAccountByPhoneNumber(phoneNumber: string): Promise<AccountByPhone | null> {
+  const attribute = await ProviderAttribute.findOne({
+    where: { valueReference: phoneNumber, voided: false },
+    include: [
+      {
+        model: ProviderAttributeType,
+        as: 'attributeType',
+        where: { name: 'phoneNumber' },
+        required: true,
+      },
+    ],
+  });
+  if (!attribute) return null;
+
+  const provider = await Provider.findOne({ where: { providerId: attribute.providerId, retired: false } });
+  if (!provider) return null;
+
+  const [user, attributes] = await Promise.all([
+    OpenmrsUser.findOne({
+      where: { personId: provider.personId, retired: false },
+      include: [
+        {
+          model: Person,
+          as: 'person',
+          required: false,
+          include: [{ model: PersonName, as: 'names', required: false, where: { voided: false } }],
+        },
+      ],
+    }),
+    findProviderAttributes(provider.providerId),
+  ]);
+  if (!user) return null;
+
+  return {
+    user,
+    phoneNumber: attributes.phoneNumber ?? null,
+    countryCode: attributes.countryCode ?? null,
+  };
+}
+
 /**
  * Loads the provider profile hanging off the same `person_id` as the user.
  *

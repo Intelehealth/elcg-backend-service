@@ -24,6 +24,7 @@ import {
   ProviderAttributeType,
 } from '@/modules/users/provider-attribute.model';
 import { RefreshToken } from '@/modules/jwt/refresh-token.model';
+import { UserSettings } from '@/modules/otp/user-settings.model';
 
 // ── OpenMRS schema ────────────────────────────────────────────────────────────
 OpenmrsUser.belongsTo(Person, { foreignKey: 'personId', targetKey: 'personId', as: 'person' });
@@ -47,4 +48,5 @@ export {
   ProviderAttribute,
   ProviderAttributeType,
   RefreshToken,
+  UserSettings,
 };
