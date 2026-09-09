@@ -9,6 +9,7 @@ import { requestId } from '@/middleware/request-id';
 import { errorHandler, notFoundHandler } from '@/middleware/error-handler';
 import healthRoutes from '@/modules/health/health.routes';
 import authRoutes from '@/modules/auth/auth.routes';
+import proxyRoutes from '@/modules/proxy/proxy.routes';
 
 export function createApp(): Application {
   const app = express();
@@ -36,6 +37,7 @@ export function createApp(): Application {
   // Routes
   app.use('/', healthRoutes);
   app.use('/auth', authRoutes);
+  app.use('/api/v1', proxyRoutes);
 
   // 404 + error handler
   app.use(notFoundHandler);

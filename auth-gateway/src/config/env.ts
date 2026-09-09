@@ -69,6 +69,18 @@ const EnvSchema = z.object({
   OPENMRS_REST_BASE_URL: z.string().optional(),
   OPENMRS_ADMIN_USERNAME: z.string().optional(),
   OPENMRS_ADMIN_PASSWORD: z.string().optional(),
+
+  // BE-GW-PROXY-01 — downstream service URLs the /api/v1 proxy forwards to.
+  // Docker-compose sets these to service names (http://portal:3002 etc.);
+  // local dev uses host.docker.internal or localhost.
+  PORTAL_URL:           z.string().default('http://localhost:3002'),
+  WEBRTC_URL:           z.string().default('http://localhost:3003'),
+  CONFIGURATION_URL:    z.string().default('http://localhost:3004'),
+  PROXY_TIMEOUT_MS:     z.coerce.number().int().positive().default(15000),
+  /** Opossum circuit-breaker window before it trips open on repeat failures. */
+  PROXY_BREAKER_TIMEOUT_MS:              z.coerce.number().int().positive().default(15000),
+  PROXY_BREAKER_ERROR_THRESHOLD_PERCENT: z.coerce.number().int().min(1).max(100).default(50),
+  PROXY_BREAKER_RESET_TIMEOUT_MS:        z.coerce.number().int().positive().default(30000),
 }).superRefine((value, ctx) => {
   if (value.NODE_ENV === 'production' && !value.SSL_KEY_PATH) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['SSL_KEY_PATH'], message: 'Required when NODE_ENV=production' });
