@@ -1,31 +1,30 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import pino from 'pino';
-import pinoHttp from 'pino-http';
+import { createApp } from '@/app';
+import { env } from '@/config/env';
+import { logger } from '@/utils/logger';
+import { connectDb, sequelize } from '@/db/sequelize';
+import '@/db/models';
 
-const PORT = Number(process.env.PORT ?? 3002);
-const NODE_ENV = process.env.NODE_ENV ?? 'development';
+async function main(): Promise<void> {
+  const app = createApp();
 
-const logger = pino({
-  level: process.env.LOG_LEVEL ?? 'info',
-  base: { service: 'portal' },
-  ...(NODE_ENV === 'development'
-    ? { transport: { target: 'pino-pretty', options: { colorize: true } } }
-    : {}),
-});
+  try {
+    await connectDb();
+  } catch (err) {
+    logger.warn({ err }, 'DB not reachable on boot — continuing; /health will report degraded.');
+  }
 
-const app = express();
-app.disable('x-powered-by');
-app.use(helmet());
-app.use(cors());
-app.use(express.json({ limit: '1mb' }));
-app.use(pinoHttp({ logger }));
+  const server = app.listen(env.PORT, () => {
+    logger.info(`🚀 portal listening on :${env.PORT} (${env.NODE_ENV})`);
+  });
 
-app.get('/health', (_req, res) =>
-  res.json({ status: 'ok', service: 'portal', timestamp: new Date().toISOString() }),
-);
-app.get('/ready', (_req, res) => res.json({ ready: true }));
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info({ signal }, 'Shutting down…');
+    server.close(() => logger.info('HTTP server closed'));
+    await sequelize.close();
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+}
 
-app.listen(PORT, () => logger.info(`🚀 portal listening on :${PORT} (${NODE_ENV})`));
+void main();

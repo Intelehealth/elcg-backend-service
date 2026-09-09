@@ -1,0 +1,311 @@
+openapi: 3.0.3
+info:
+  title: eZAZI Portal — Sprint 46 slice
+  version: 0.1.0
+  description: |
+    Portal service — read/write of patient / visit / encounter / labour data.
+    This branch ships **only** health + visits (BE-PORTAL-VIS-01). Other modules
+    (patient, audit, messages, notifications) land in their own PRs.
+
+    Auth: every non-health endpoint requires a Bearer JWT issued by auth-gateway
+    (RS256, 15-min access token). Portal does NOT issue tokens.
+  contact:
+    name: Surendra Reddy
+    email: surendra@intelehealth.org
+
+servers:
+  - url: http://localhost:3002
+    description: Local dev
+  - url: https://erevamp.intelehealth.org/portal
+    description: Staging (Nepal team)
+
+tags:
+  - name: Health
+    description: Liveness + readiness probes
+  - name: Visits
+    description: BE-PORTAL-VIS-01 — visit lifecycle lists + counts (mounted at /openmrs/*)
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Access token issued by auth-gateway (RS256, 15-min TTL)
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:    { type: string, example: VALIDATION_ERROR }
+            message: { type: string, example: "Invalid input" }
+            details: { type: object, additionalProperties: true }
+
+    VisitCard:
+      type: object
+      required: [uuid, patientUuid, startDatetime, stopDatetime, bucket]
+      properties:
+        uuid:           { type: string, format: uuid, example: "d0f9-visit-uuid" }
+        patientUuid:    { type: string, format: uuid }
+        patientName:    { type: string, nullable: true, example: "Test Patient" }
+        patientGender:  { type: string, nullable: true, example: "F" }
+        patientAge:     { type: integer, nullable: true, example: 28 }
+        locationUuid:   { type: string, nullable: true, format: uuid }
+        locationName:   { type: string, nullable: true, example: "Test Facility" }
+        visitTypeUuid:  { type: string, nullable: true, format: uuid }
+        startDatetime:  { type: string, format: date-time }
+        stopDatetime:   { type: string, format: date-time, nullable: true }
+        riskScore:      { type: number, nullable: true, example: 4.2 }
+        stage:
+          type: string
+          nullable: true
+          enum: [stage1, stage2, stage3, stage4, outcomePending, ended]
+        bucket:
+          type: string
+          enum: [priority, awaiting, inProgress, ended, followUp]
+
+    ListVisitsResponse:
+      type: object
+      required: [bucket, count, nextCursor, hasMore, visits]
+      properties:
+        bucket:     { type: string, enum: [priority, awaiting, inProgress, ended, followUp] }
+        count:      { type: integer, minimum: 0 }
+        nextCursor: { type: string, nullable: true, example: "eyJzIjoyNX0" }
+        hasMore:    { type: boolean }
+        visits:
+          type: array
+          items: { $ref: '#/components/schemas/VisitCard' }
+
+    VisitCountsResponse:
+      type: object
+      required: [facilityUuid, providerUuid, counts, cachedAt]
+      properties:
+        facilityUuid: { type: string, format: uuid }
+        providerUuid: { type: string, format: uuid, nullable: true }
+        counts:
+          type: object
+          required: [priority, awaiting, inProgress, ended, followUp]
+          properties:
+            priority:   { type: integer, minimum: 0 }
+            awaiting:   { type: integer, minimum: 0 }
+            inProgress: { type: integer, minimum: 0 }
+            ended:      { type: integer, minimum: 0 }
+            followUp:   { type: integer, minimum: 0 }
+        cachedAt: { type: string, format: date-time }
+
+  parameters:
+    FacilityUuid:
+      in: query
+      name: facilityUuid
+      required: true
+      schema: { type: string, format: uuid }
+      description: Facility to scope the query to
+    ProviderUuid:
+      in: query
+      name: providerUuid
+      required: false
+      schema: { type: string, format: uuid }
+      description: Optional provider (nurse/doctor) filter
+    Limit:
+      in: query
+      name: limit
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    Cursor:
+      in: query
+      name: cursor
+      required: false
+      schema: { type: string }
+      description: Opaque base64 cursor from a prior response's `nextCursor`
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            missing:  { value: { error: { code: AUTH_REQUIRED,     message: "Authorization header missing" } } }
+            invalid:  { value: { error: { code: AUTH_INVALID_TOKEN, message: "Token is invalid or expired" } } }
+    ValidationError:
+      description: Zod validation failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    UpstreamError:
+      description: OpenMRS unavailable or returned 5xx
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            unavailable: { value: { error: { code: AUTH_OPENMRS_UNAVAILABLE, message: "OpenMRS is not configured or reachable" } } }
+            upstream:    { value: { error: { code: AUTH_OPENMRS_ERROR,       message: "OpenMRS upstream error" } } }
+
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness + DB check
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:    { type: string, enum: [ok, degraded] }
+                  service:   { type: string, example: portal }
+                  timestamp: { type: string, format: date-time }
+                  checks:
+                    type: object
+                    properties:
+                      db: { type: string, enum: [up, down] }
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      security: []
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { ready: { type: boolean } }
+
+  /openmrs/getPriorityVisits:
+    get:
+      tags: [Visits]
+      summary: List priority (high-risk) visits
+      description: Visits whose risk score attribute exceeds 3.5 (IHRDMP-592).
+      parameters:
+        - $ref: '#/components/parameters/FacilityUuid'
+        - $ref: '#/components/parameters/ProviderUuid'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Priority visits page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListVisitsResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /openmrs/getAwaitingVisits:
+    get:
+      tags: [Visits]
+      summary: List visits awaiting outcome capture
+      description: Visits with `labourStageEnded` attribute truthy and no outcome encounter yet.
+      parameters:
+        - $ref: '#/components/parameters/FacilityUuid'
+        - $ref: '#/components/parameters/ProviderUuid'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Awaiting visits page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListVisitsResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /openmrs/getInProgressVisits:
+    get:
+      tags: [Visits]
+      summary: List active visits (Home → Active Cases tab)
+      description: Active labour visits not in priority/awaiting/followUp — mobile's primary Home list.
+      parameters:
+        - $ref: '#/components/parameters/FacilityUuid'
+        - $ref: '#/components/parameters/ProviderUuid'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: In-progress visits page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListVisitsResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /openmrs/getEndedVisits:
+    get:
+      tags: [Visits]
+      summary: List ended (closed) visits
+      description: Visits with `stopDatetime` set, regardless of outcome capture state.
+      parameters:
+        - $ref: '#/components/parameters/FacilityUuid'
+        - $ref: '#/components/parameters/ProviderUuid'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Ended visits page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListVisitsResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /openmrs/getFollowUpVisits:
+    get:
+      tags: [Visits]
+      summary: List follow-up visits
+      description: Visits with `followUp` attribute truthy.
+      parameters:
+        - $ref: '#/components/parameters/FacilityUuid'
+        - $ref: '#/components/parameters/ProviderUuid'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Follow-up visits page
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListVisitsResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
+
+  /openmrs/getVisitCounts:
+    get:
+      tags: [Visits]
+      summary: Counts across all 5 buckets
+      description: Aggregate counts. Response is cached in-memory for 60s per (facility, provider).
+      parameters:
+        - $ref: '#/components/parameters/FacilityUuid'
+        - $ref: '#/components/parameters/ProviderUuid'
+      responses:
+        '200':
+          description: Counts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VisitCountsResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '502': { $ref: '#/components/responses/UpstreamError' }
+        '503': { $ref: '#/components/responses/UpstreamError' }
