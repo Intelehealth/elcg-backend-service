@@ -1,0 +1,368 @@
+openapi: 3.0.3
+info:
+  title: eZAZI Configuration — Sprint 46 slice
+  version: 0.1.0
+  description: |
+    Configuration service — master data, feature flags, theme, dynamic schemas.
+    This branch ships **only** health + master-data (BE-CFG-MD-01). Other
+    modules (feature flags, theme, patient-registration schema, publish) land
+    in their own PRs.
+
+    Auth: every non-health endpoint requires a Bearer JWT issued by auth-gateway.
+    Write endpoints additionally require Admin / SystemAdministrator role.
+  contact:
+    name: Surendra Reddy
+    email: surendra@intelehealth.org
+
+servers:
+  - url: http://localhost:3004
+    description: Local dev
+  - url: https://erevamp.intelehealth.org/configuration
+    description: Staging (Nepal team)
+
+tags:
+  - name: Health
+    description: Liveness + readiness probes
+  - name: Specializations
+    description: BE-CFG-MD-01 · doctor / provider specializations
+  - name: Languages
+    description: BE-CFG-MD-01 · supported UI languages
+  - name: Dropdown Values
+    description: BE-CFG-MD-01 · generic dropdown values grouped by category
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:    { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    Specialization:
+      type: object
+      required: [id, name, displayOrder, isActive]
+      properties:
+        id:           { type: string, format: uuid }
+        name:         { type: string, maxLength: 120 }
+        displayOrder: { type: integer, minimum: 0, default: 0 }
+        isActive:     { type: boolean, default: true }
+        createdAt:    { type: string, format: date-time }
+        updatedAt:    { type: string, format: date-time }
+    SpecializationCreate:
+      type: object
+      required: [name]
+      properties:
+        name:         { type: string, maxLength: 120, example: "Obstetrics" }
+        displayOrder: { type: integer, minimum: 0, default: 0 }
+        isActive:     { type: boolean, default: true }
+
+    Language:
+      type: object
+      required: [id, code, name, displayOrder, isActive]
+      properties:
+        id:           { type: string, format: uuid }
+        code:         { type: string, example: "ne", description: "ISO 639-1 language code" }
+        name:         { type: string, example: "Nepali" }
+        nativeName:   { type: string, nullable: true, example: "नेपाली" }
+        displayOrder: { type: integer, minimum: 0 }
+        isActive:     { type: boolean }
+        createdAt:    { type: string, format: date-time }
+        updatedAt:    { type: string, format: date-time }
+    LanguageCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code:         { type: string, pattern: "^[a-z]{2}(-[A-Za-z]{2,4})?$", example: "ne" }
+        name:         { type: string, example: "Nepali" }
+        nativeName:   { type: string, nullable: true, example: "नेपाली" }
+        displayOrder: { type: integer, minimum: 0, default: 0 }
+        isActive:     { type: boolean, default: true }
+
+    DropdownValue:
+      type: object
+      required: [id, category, key, label, displayOrder, isActive]
+      properties:
+        id:           { type: string, format: uuid }
+        category:     { type: string, example: "province" }
+        key:          { type: string, example: "koshi" }
+        label:        { type: string, example: "Koshi" }
+        displayOrder: { type: integer, minimum: 0 }
+        isActive:     { type: boolean }
+        createdAt:    { type: string, format: date-time }
+        updatedAt:    { type: string, format: date-time }
+    DropdownValueCreate:
+      type: object
+      required: [category, key, label]
+      properties:
+        category:     { type: string, pattern: "^[a-z0-9_.-]+$", example: "province" }
+        key:          { type: string, example: "koshi" }
+        label:        { type: string, example: "Koshi" }
+        displayOrder: { type: integer, minimum: 0, default: 0 }
+        isActive:     { type: boolean, default: true }
+
+  parameters:
+    IsActive:
+      in: query
+      name: isActive
+      required: false
+      schema: { type: string, enum: [true, false, all], default: true }
+    Category:
+      in: query
+      name: category
+      required: true
+      schema: { type: string, pattern: "^[a-z0-9_.-]+$" }
+    IdPath:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    ValidationError:
+      description: Zod validation failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing / invalid Bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Write attempted without Admin role
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Unique-constraint conflict (name / code / (category,key))
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+paths:
+
+  /health:
+    get:
+      tags: [Health]
+      security: []
+      summary: Liveness + DB check
+      responses:
+        '200':
+          description: OK
+          content: { application/json: { schema: { type: object } } }
+
+  /ready:
+    get:
+      tags: [Health]
+      security: []
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Ready
+          content: { application/json: { schema: { type: object } } }
+
+  # ── Specializations ──────────────────────────────────────────────────────
+  /config/specializations:
+    get:
+      tags: [Specializations]
+      summary: List specializations
+      parameters:
+        - $ref: '#/components/parameters/IsActive'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Specialization' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Specializations]
+      summary: Create a specialization (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpecializationCreate' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Specialization' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /config/specializations/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Specializations]
+      summary: Update a specialization (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpecializationCreate' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Specialization' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Specializations]
+      summary: Soft-delete a specialization (Admin only)
+      responses:
+        '200': { description: Soft-deleted, content: { application/json: { schema: { $ref: '#/components/schemas/Specialization' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ── Languages ────────────────────────────────────────────────────────────
+  /config/languages:
+    get:
+      tags: [Languages]
+      summary: List languages
+      parameters:
+        - $ref: '#/components/parameters/IsActive'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Language' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Languages]
+      summary: Create a language (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LanguageCreate' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/Language' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /config/languages/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Languages]
+      summary: Update a language (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LanguageCreate' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Language' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Languages]
+      summary: Soft-delete a language (Admin only)
+      responses:
+        '200': { description: Soft-deleted, content: { application/json: { schema: { $ref: '#/components/schemas/Language' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ── Dropdown Values ──────────────────────────────────────────────────────
+  /config/dropdown-values:
+    get:
+      tags: [Dropdown Values]
+      summary: List dropdown values for a category
+      parameters:
+        - $ref: '#/components/parameters/Category'
+        - $ref: '#/components/parameters/IsActive'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  category: { type: string }
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/DropdownValue' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Dropdown Values]
+      summary: Create a dropdown value (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DropdownValueCreate' }
+      responses:
+        '201': { description: Created, content: { application/json: { schema: { $ref: '#/components/schemas/DropdownValue' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /config/dropdown-values/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdPath'
+    put:
+      tags: [Dropdown Values]
+      summary: Update a dropdown value (Admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DropdownValueCreate' }
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/DropdownValue' } } } }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [Dropdown Values]
+      summary: Soft-delete a dropdown value (Admin only)
+      responses:
+        '200': { description: Soft-deleted, content: { application/json: { schema: { $ref: '#/components/schemas/DropdownValue' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }

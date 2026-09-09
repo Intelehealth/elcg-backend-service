@@ -8,15 +8,16 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3004),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
-  DB_HOST: z.string(),
-  DB_PORT: z.coerce.number().int().positive().default(3306),
-  DB_NAME: z.string(),
-  DB_USER: z.string(),
-  DB_PASSWORD: z.string(),
+  // DB is optional in test (in-memory SQLite); required in dev/prod (MySQL).
+  DB_HOST:     z.string().default('localhost'),
+  DB_PORT:     z.coerce.number().int().positive().default(3306),
+  DB_NAME:     z.string().default('elcg_configuration'),
+  DB_USER:     z.string().default('root'),
+  DB_PASSWORD: z.string().default(''),
 
   // JWT validation only — we don't issue tokens; auth-gateway does.
   JWT_ALGORITHM: z.literal('RS256').default('RS256'),
-  JWT_PUBLIC_KEY_PATH: z.string(),
+  JWT_PUBLIC_KEY_PATH: z.string().default('keys/jwt-public.pem'),
   JWT_ISSUER: z.string().default('elcg-auth-gateway'),
   JWT_AUDIENCE: z.string().default('elcg-clients'),
 

@@ -1,8 +1,11 @@
 /**
- * Jest setup — generates throwaway RSA keys so jwt.middleware can verify in tests.
+ * Jest setup — generates throwaway RSA keys so jwt.middleware can verify in tests,
+ * and forces NODE_ENV=test so sequelize picks its SQLite in-memory branch.
  * The same keypair would be issued by auth-gateway in production; in tests we
  * sign tokens locally using the private key + verify with the public key.
  */
+process.env.NODE_ENV = 'test';
+
 import fs from 'fs';
 import path from 'path';
 import { generateKeyPairSync } from 'crypto';
