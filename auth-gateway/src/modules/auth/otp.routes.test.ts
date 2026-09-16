@@ -3,16 +3,19 @@ import { createApp } from '@/app';
 import * as authRepository from '@/modules/auth/auth.repository';
 import * as userSettingsRepository from '@/modules/otp/user-settings.repository';
 import { selectProvider } from '@/modules/otp/providers';
+import * as emailModule from '@/modules/otp/email';
 import { signPasswordResetToken } from '@/modules/jwt/jwt.service';
 import { env } from '@/config/env';
 
 jest.mock('@/modules/auth/auth.repository');
 jest.mock('@/modules/otp/user-settings.repository');
 jest.mock('@/modules/otp/providers');
+jest.mock('@/modules/otp/email');
 
 const mockedAuthRepo = jest.mocked(authRepository);
 const mockedSettingsRepo = jest.mocked(userSettingsRepository);
 const mockedSelectProvider = jest.mocked(selectProvider);
+const mockedEmail = jest.mocked(emailModule);
 
 const USER_UUID = '11111111-1111-4111-8111-111111111111';
 const PHONE = '9876543210';
@@ -23,6 +26,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   sendMock.mockResolvedValue('123456');
   mockedSelectProvider.mockReturnValue({ send: sendMock });
+  mockedEmail.sendOtpEmail.mockResolvedValue(undefined);
+  mockedEmail.sendUsernameEmail.mockResolvedValue(undefined);
 });
 
 describe('POST /auth/requestOtp', () => {
@@ -35,15 +40,21 @@ describe('POST /auth/requestOtp', () => {
   it('rejects an unsupported otpFor value', async () => {
     const res = await request(app)
       .post('/auth/requestOtp')
-      .send({ otpFor: 'username', phoneNumber: PHONE });
+      .send({ otpFor: 'verification', phoneNumber: PHONE });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects a request with none of phoneNumber/email/username', async () => {
+    const res = await request(app).post('/auth/requestOtp').send({ otpFor: 'password' });
     expect(res.status).toBe(400);
   });
 
   it('always returns a generic 200, whether or not a phone matched an account', async () => {
-    mockedAuthRepo.findAccountByPhoneNumber.mockResolvedValue({
-      user: { userId: 42, personId: 7, uuid: USER_UUID },
+    mockedAuthRepo.findAccountByContact.mockResolvedValue({
+      user: { userId: 42, personId: 7, uuid: USER_UUID, username: 'nurse01', systemId: 'SYS01' },
       phoneNumber: PHONE,
       countryCode: '91',
+      email: null,
     } as never);
 
     const res = await request(app)
@@ -53,7 +64,7 @@ describe('POST /auth/requestOtp', () => {
     expect(res.status).toBe(200);
     expect(sendMock).toHaveBeenCalled();
 
-    mockedAuthRepo.findAccountByPhoneNumber.mockResolvedValue(null);
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(null);
     sendMock.mockClear();
 
     const res2 = await request(app)
@@ -63,6 +74,21 @@ describe('POST /auth/requestOtp', () => {
     expect(res2.status).toBe(200);
     expect(res2.body).toEqual(res.body);
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('accepts otpFor: "username" with an email and no phoneNumber', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue({
+      user: { userId: 42, personId: 7, uuid: USER_UUID, username: 'nurse01', systemId: 'SYS01' },
+      phoneNumber: null,
+      countryCode: null,
+      email: 'nurse01@example.com',
+    } as never);
+
+    const res = await request(app)
+      .post('/auth/requestOtp')
+      .send({ otpFor: 'username', email: 'nurse01@example.com' });
+
+    expect(res.status).toBe(200);
   });
 });
 
@@ -74,7 +100,7 @@ describe('POST /auth/verifyOtp', () => {
   });
 
   it('returns userUuid + resetToken on a correct code', async () => {
-    mockedAuthRepo.findAccountByPhoneNumber.mockResolvedValue({
+    mockedAuthRepo.findAccountByContact.mockResolvedValue({
       user: { userId: 42, personId: 7, uuid: USER_UUID },
       phoneNumber: PHONE,
       countryCode: '91',
@@ -100,7 +126,7 @@ describe('POST /auth/verifyOtp', () => {
   });
 
   it('returns 401 INVALID_OTP on a wrong code', async () => {
-    mockedAuthRepo.findAccountByPhoneNumber.mockResolvedValue({
+    mockedAuthRepo.findAccountByContact.mockResolvedValue({
       user: { userId: 42, personId: 7, uuid: USER_UUID },
       phoneNumber: PHONE,
       countryCode: '91',

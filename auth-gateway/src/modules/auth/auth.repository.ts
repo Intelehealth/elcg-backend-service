@@ -209,6 +209,89 @@ export async function findAccountByPhoneNumber(phoneNumber: string): Promise<Acc
   };
 }
 
+export interface AccountContact {
+  user: OpenmrsUser;
+  phoneNumber: string | null;
+  countryCode: string | null;
+  email: string | null;
+}
+
+/** Shared by findAccountByContact/findAccountByUsername below — resolves the rest of an account's contact details once its `Provider` row is known. */
+async function loadAccountContact(providerId: number, personId: number): Promise<AccountContact | null> {
+  const [user, attributes] = await Promise.all([
+    OpenmrsUser.findOne({
+      where: { personId, retired: false },
+      include: [
+        {
+          model: Person,
+          as: 'person',
+          required: false,
+          include: [{ model: PersonName, as: 'names', required: false, where: { voided: false } }],
+        },
+      ],
+    }),
+    findProviderAttributes(providerId),
+  ]);
+  if (!user) return null;
+
+  return {
+    user,
+    phoneNumber: attributes.phoneNumber ?? null,
+    countryCode: attributes.countryCode ?? null,
+    email: attributes.emailId ?? null,
+  };
+}
+
+/**
+ * OTP's phone-OR-email account lookup — mirrors legacy's combined
+ * `provider_attribute` query exactly (`WHERE (pat.name = 'emailId' OR
+ * pat.name = 'phoneNumber') AND pa.value_reference = ?`), used by:
+ * - `otpFor: 'username'` (the real client only ever supplies a phone or an
+ *   email at that point — there's no username to look up by yet).
+ * - `otpFor: 'password'` when no `username` was given (legacy's own
+ *   fallback path when the client only has a phone/email on hand).
+ *
+ * Whichever value matched, the returned `AccountContact` carries ALL contact
+ * details on file for that account (not just the one that matched) — e.g. a
+ * phone-number match still returns the account's email too, since
+ * `otpFor: 'password'` sends to both channels when both exist.
+ */
+export async function findAccountByContact(value: string): Promise<AccountContact | null> {
+  const attribute = await ProviderAttribute.findOne({
+    where: { valueReference: value, voided: false },
+    include: [
+      {
+        model: ProviderAttributeType,
+        as: 'attributeType',
+        where: { name: { [Op.in]: ['phoneNumber', 'emailId'] } },
+        required: true,
+      },
+    ],
+  });
+  if (!attribute) return null;
+
+  const provider = await Provider.findOne({ where: { providerId: attribute.providerId, retired: false } });
+  if (!provider) return null;
+
+  return loadAccountContact(provider.providerId, provider.personId);
+}
+
+/**
+ * OTP's username-based account lookup for `otpFor: 'password'` — mirrors
+ * legacy's `WHERE u.username = ? OR u.system_id = ?` query, reusing the same
+ * `username`-or-`system_id` match `findUserByLogin` already does for the
+ * regular login prompt.
+ */
+export async function findAccountByUsername(login: string): Promise<AccountContact | null> {
+  const user = await findUserByLogin(login);
+  if (!user) return null;
+
+  const provider = await Provider.findOne({ where: { personId: user.personId, retired: false } });
+  if (!provider) return null;
+
+  return loadAccountContact(provider.providerId, provider.personId);
+}
+
 /**
  * Loads the provider profile hanging off the same `person_id` as the user.
  *

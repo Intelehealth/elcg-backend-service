@@ -69,6 +69,18 @@ const EnvSchema = z.object({
   OPENMRS_REST_BASE_URL: z.string().optional(),
   OPENMRS_ADMIN_USERNAME: z.string().optional(),
   OPENMRS_ADMIN_PASSWORD: z.string().optional(),
+
+  // Email channel for requestOtp/verifyOtp (otpFor: 'username', and 'password'
+  // when the matched account has an email on file) — Gmail OAuth2 transport,
+  // matching mindmap-api-NAS's handlers/functions.js `sendEmail` exactly.
+  // All optional: an environment with no email configured simply can't send
+  // that channel (see modules/otp/email.ts), same posture as an SMS provider
+  // missing its own API key.
+  MAIL_USERNAME: z.string().optional(),
+  MAIL_PASSWORD: z.string().optional(),
+  OAUTH_CLIENT_ID: z.string().optional(),
+  OAUTH_CLIENT_SECRET: z.string().optional(),
+  OAUTH_CLIENT_REFRESH_TOKEN: z.string().optional(),
 }).superRefine((value, ctx) => {
   if (value.NODE_ENV === 'production' && !value.SSL_KEY_PATH) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['SSL_KEY_PATH'], message: 'Required when NODE_ENV=production' });

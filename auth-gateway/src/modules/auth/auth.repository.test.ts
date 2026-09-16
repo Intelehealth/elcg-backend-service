@@ -1,12 +1,20 @@
 import { Op } from 'sequelize';
-import { loadIdentity } from '@/modules/auth/auth.repository';
+import {
+  findAccountByContact,
+  findAccountByPhoneNumber,
+  findAccountByUsername,
+  findUserByLogin,
+  findUserByUuid,
+  loadIdentity,
+} from '@/modules/auth/auth.repository';
+import { OpenmrsUser } from '@/modules/users/openmrs-user.model';
 import { UserRole } from '@/modules/users/user-role.model';
 import { RoleRole } from '@/modules/users/role-role.model';
 import { RolePrivilege } from '@/modules/users/role-privilege.model';
 import { Provider } from '@/modules/users/provider.model';
 import { ProviderAttribute } from '@/modules/users/provider-attribute.model';
-import type { OpenmrsUser } from '@/modules/users/openmrs-user.model';
 
+jest.mock('@/modules/users/openmrs-user.model');
 jest.mock('@/modules/users/user-role.model');
 jest.mock('@/modules/users/role-role.model');
 jest.mock('@/modules/users/role-privilege.model');
@@ -45,9 +53,7 @@ function buildUser(): OpenmrsUser {
 beforeEach(() => {
   jest.clearAllMocks();
 
-  jest.mocked(UserRole.findAll).mockResolvedValue([
-    { role: 'Organizational: Nurse' },
-  ] as never);
+  jest.mocked(UserRole.findAll).mockResolvedValue([{ role: 'Organizational: Nurse' }] as never);
 
   jest.mocked(RoleRole.findAll).mockImplementation((options) => {
     const children = (options?.where as Record<string, Record<symbol, string[]>>).childRole[
@@ -133,5 +139,361 @@ describe('loadIdentity — provider display', () => {
     const identity = await loadIdentity(buildUser());
 
     expect(identity.provider).toBeNull();
+  });
+
+  it('maps provider attribute rows to a { typeName: value } record, skipping voided-out or nameless ones', async () => {
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      uuid: 'provider-uuid',
+      identifier: '42-3',
+      name: null,
+    } as never);
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([
+      { attributeType: { name: 'Phone Number' }, valueReference: '9999999999' },
+      // No matching attributeType include (e.g. a retired type) — must be skipped, not throw.
+      { attributeType: undefined, valueReference: 'ignored' },
+      // A defined type but a null value on file — also skipped.
+      { attributeType: { name: 'Country Code' }, valueReference: null },
+    ] as never);
+
+    const identity = await loadIdentity(buildUser());
+
+    expect(identity.provider?.attributes).toEqual({ 'Phone Number': '9999999999' });
+  });
+});
+
+describe('findUserByLogin', () => {
+  it('matches either username or system_id on an active account', async () => {
+    const user = buildUser();
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+
+    const result = await findUserByLogin('nurse01');
+
+    expect(result).toBe(user);
+    const call = jest.mocked(OpenmrsUser.findOne).mock.calls[0][0];
+    expect(call?.where).toMatchObject({
+      retired: false,
+      [Op.or]: [{ username: 'nurse01' }, { systemId: 'nurse01' }],
+    });
+  });
+
+  it('returns null when nothing matches', async () => {
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(null);
+
+    await expect(findUserByLogin('ghost')).resolves.toBeNull();
+  });
+});
+
+describe('findUserByUuid', () => {
+  it('looks up an active account by uuid', async () => {
+    const user = buildUser();
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+
+    const result = await findUserByUuid('user-uuid');
+
+    expect(result).toBe(user);
+    const call = jest.mocked(OpenmrsUser.findOne).mock.calls[0][0];
+    expect(call?.where).toMatchObject({ uuid: 'user-uuid', retired: false });
+  });
+
+  it('returns null when the uuid does not exist', async () => {
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(null);
+
+    await expect(findUserByUuid('missing-uuid')).resolves.toBeNull();
+  });
+});
+
+describe('findAccountByPhoneNumber', () => {
+  beforeEach(() => {
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([] as never);
+  });
+
+  it('returns null when no provider attribute has that phone number on file', async () => {
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue(null);
+
+    await expect(findAccountByPhoneNumber('9999999999')).resolves.toBeNull();
+  });
+
+  it('returns null when the matched attribute has no active provider', async () => {
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({
+      providerId: 1,
+      valueReference: '9999999999',
+    } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue(null as never);
+
+    await expect(findAccountByPhoneNumber('9999999999')).resolves.toBeNull();
+  });
+
+  it('returns null when the provider has no active user', async () => {
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({
+      providerId: 1,
+      valueReference: '9999999999',
+    } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+    } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(null);
+
+    await expect(findAccountByPhoneNumber('9999999999')).resolves.toBeNull();
+  });
+
+  it('resolves the account and its phone/country-code attributes on a full match', async () => {
+    const user = buildUser();
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({
+      providerId: 1,
+      valueReference: '9999999999',
+    } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+    } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([
+      { attributeType: { name: 'phoneNumber' }, valueReference: '9999999999' },
+      { attributeType: { name: 'countryCode' }, valueReference: '91' },
+    ] as never);
+
+    const result = await findAccountByPhoneNumber('9999999999');
+
+    expect(result).toEqual({ user, phoneNumber: '9999999999', countryCode: '91' });
+  });
+
+  it('defaults phoneNumber/countryCode to null when neither attribute is on file', async () => {
+    const user = buildUser();
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({
+      providerId: 1,
+      valueReference: '9999999999',
+    } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+    } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+
+    const result = await findAccountByPhoneNumber('9999999999');
+
+    expect(result).toEqual({ user, phoneNumber: null, countryCode: null });
+  });
+});
+
+describe('findAccountByContact', () => {
+  beforeEach(() => {
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([] as never);
+  });
+
+  it('returns null when no provider attribute (phone or email) has that value on file', async () => {
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue(null);
+
+    await expect(findAccountByContact('nurse01@example.com')).resolves.toBeNull();
+  });
+
+  it('returns null when the matched attribute has no active provider', async () => {
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 1 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue(null as never);
+
+    await expect(findAccountByContact('9999999999')).resolves.toBeNull();
+  });
+
+  it('returns null when the provider has no active user', async () => {
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 1 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7 } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(null);
+
+    await expect(findAccountByContact('9999999999')).resolves.toBeNull();
+  });
+
+  it('resolves every contact detail on file, not just the one that matched (an email match still returns the phone)', async () => {
+    const user = buildUser();
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 1 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7 } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([
+      { attributeType: { name: 'phoneNumber' }, valueReference: '9999999999' },
+      { attributeType: { name: 'countryCode' }, valueReference: '91' },
+      { attributeType: { name: 'emailId' }, valueReference: 'nurse01@example.com' },
+    ] as never);
+
+    const result = await findAccountByContact('nurse01@example.com');
+
+    expect(result).toEqual({
+      user,
+      phoneNumber: '9999999999',
+      countryCode: '91',
+      email: 'nurse01@example.com',
+    });
+  });
+
+  it('defaults phoneNumber/countryCode/email to null when none are on file', async () => {
+    const user = buildUser();
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 1 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7 } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+
+    const result = await findAccountByContact('9999999999');
+
+    expect(result).toEqual({ user, phoneNumber: null, countryCode: null, email: null });
+  });
+});
+
+describe('findAccountByUsername', () => {
+  beforeEach(() => {
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([] as never);
+  });
+
+  it('returns null when no user matches the username/system_id', async () => {
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(null);
+
+    await expect(findAccountByUsername('nurse01')).resolves.toBeNull();
+  });
+
+  it('returns null when the matched user has no active provider', async () => {
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(buildUser() as never);
+    jest.mocked(Provider.findOne).mockResolvedValue(null as never);
+
+    await expect(findAccountByUsername('nurse01')).resolves.toBeNull();
+  });
+
+  it('resolves the account and its contact details for a username match', async () => {
+    const user = buildUser();
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7 } as never);
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([
+      { attributeType: { name: 'phoneNumber' }, valueReference: '9999999999' },
+      { attributeType: { name: 'countryCode' }, valueReference: '91' },
+      { attributeType: { name: 'emailId' }, valueReference: 'nurse01@example.com' },
+    ] as never);
+
+    const result = await findAccountByUsername('nurse01');
+
+    expect(result).toEqual({
+      user,
+      phoneNumber: '9999999999',
+      countryCode: '91',
+      email: 'nurse01@example.com',
+    });
+  });
+});
+
+describe('loadIdentity — display-name resolution', () => {
+  beforeEach(() => {
+    jest.mocked(Provider.findOne).mockResolvedValue(null as never);
+  });
+
+  it('falls back to names[0] when no name is marked preferred', async () => {
+    const user = buildUser();
+    user.person!.names = [{ preferred: false, display: 'Fallback Name' } as never];
+
+    const identity = await loadIdentity(user);
+
+    expect(identity.display).toBe('Fallback Name');
+  });
+
+  it('falls back to the username when the person has no names at all', async () => {
+    const user = buildUser();
+    user.person!.names = [];
+
+    const identity = await loadIdentity(user);
+
+    expect(identity.display).toBe('nurse01');
+  });
+
+  it('falls back to the username when the chosen name is blank after trimming', async () => {
+    const user = buildUser();
+    user.person!.names = [{ preferred: true, display: '   ' } as never];
+
+    const identity = await loadIdentity(user);
+
+    expect(identity.display).toBe('nurse01');
+  });
+
+  it('falls back to the systemId when there are no names and no username', async () => {
+    const user = { ...buildUser(), username: null } as unknown as OpenmrsUser;
+    user.person!.names = [];
+
+    const identity = await loadIdentity(user);
+
+    expect(identity.display).toBe('42-3');
+  });
+});
+
+describe('loadIdentity — user with no linked person row', () => {
+  it('defaults personUuid to "" and gender/birthdate to null', async () => {
+    jest.mocked(Provider.findOne).mockResolvedValue(null as never);
+    const user = buildUser();
+    user.person = undefined;
+
+    const identity = await loadIdentity(user);
+
+    expect(identity.personUuid).toBe('');
+    expect(identity.gender).toBeNull();
+    expect(identity.birthdate).toBeNull();
+  });
+});
+
+describe('findPrivileges — no assigned roles', () => {
+  it('returns no privileges without querying role_role at all', async () => {
+    jest.mocked(Provider.findOne).mockResolvedValue(null as never);
+    jest.mocked(UserRole.findAll).mockResolvedValue([] as never);
+
+    const identity = await loadIdentity(buildUser());
+
+    expect(identity.roles).toEqual([]);
+    expect(identity.privileges).toEqual([]);
+    expect(RoleRole.findAll).not.toHaveBeenCalled();
+  });
+});
+
+describe('calculateAge (via the provider payload)', () => {
+  const NOW = new Date('2024-06-15T00:00:00.000Z');
+
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['nextTick'] }).setSystemTime(NOW);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      uuid: 'provider-uuid',
+      identifier: '42-3',
+      name: null,
+    } as never);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  async function ageFor(birthdate: string): Promise<number | null> {
+    const user = buildUser();
+    user.person!.birthdate = birthdate;
+    const identity = await loadIdentity(user);
+    return identity.provider?.person.age ?? null;
+  }
+
+  it('is a year older once the birth month has already passed this year', async () => {
+    await expect(ageFor('1990-03-10')).resolves.toBe(34);
+  });
+
+  it('is a year older on the birthday itself, same month and day', async () => {
+    await expect(ageFor('1990-06-15')).resolves.toBe(34);
+  });
+
+  it('has not turned a year older yet, same month but a later day', async () => {
+    await expect(ageFor('1990-06-20')).resolves.toBe(33);
+  });
+
+  it('has not turned a year older yet, birth month still ahead', async () => {
+    await expect(ageFor('1990-09-01')).resolves.toBe(33);
+  });
+
+  it('returns null for an unparseable birthdate', async () => {
+    await expect(ageFor('not-a-date')).resolves.toBeNull();
+  });
+
+  it('returns null when there is no birthdate on file at all', async () => {
+    const user = buildUser();
+    user.person!.birthdate = null;
+
+    const identity = await loadIdentity(user);
+
+    expect(identity.provider?.person.age).toBeNull();
   });
 });

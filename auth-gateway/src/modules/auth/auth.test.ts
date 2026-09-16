@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
+import type { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { createApp } from '@/app';
 import { env } from '@/config/env';
+import * as authController from '@/modules/auth/auth.controller';
 import * as authRepository from '@/modules/auth/auth.repository';
 import * as userRepository from '@/modules/users/user.repository';
 import * as tokenRepository from '@/modules/jwt/refresh-token.repository';
@@ -204,6 +207,48 @@ describe('POST /auth/login', () => {
     expect(res.status).toBe(200);
     expect(res.body.provider).toBeNull();
   });
+
+  it('signs the access token with system_id and an empty role when the identity has neither a username nor any roles', async () => {
+    mockedAuthRepo.findUserByLogin.mockResolvedValue(buildOpenmrsUser() as never);
+    mockedAuthRepo.loadIdentity.mockResolvedValue(
+      buildIdentity({
+        user: { ...buildOpenmrsUser(), username: null },
+        roles: [],
+      }) as never,
+    );
+
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ username: 'nurse01', password: PASSWORD });
+
+    expect(res.status).toBe(200);
+    const claims = jwt.decode(res.body.accessToken as string) as { username: string; role: string };
+    expect(claims.username).toBe('nurse01-1'); // falls back to systemId
+    expect(claims.role).toBe(''); // no roles to draw a primary one from
+  });
+});
+
+describe('auth.controller.login — request-context extraction', () => {
+  it('falls back to a null ipAddress when req.ip is unavailable', async () => {
+    // supertest/Express always populate req.ip for a real connection, so the
+    // controller's `req.ip ?? null` fallback (and the same fallback one layer
+    // down in auth.service's issueTokenPair) can only be reached by calling
+    // the controller directly with a request object that omits it.
+    mockedAuthRepo.findUserByLogin.mockResolvedValue(buildOpenmrsUser() as never);
+
+    const req = {
+      body: { username: 'nurse01', password: PASSWORD },
+      ip: undefined,
+      header: () => undefined,
+    } as unknown as Request;
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() } as unknown as Response;
+
+    await authController.login(req, res);
+
+    expect(mockedTokenRepo.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ ipAddress: null }),
+    );
+  });
 });
 
 describe('POST /auth/refresh', () => {
@@ -287,6 +332,52 @@ describe('POST /auth/refresh', () => {
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('INVALID_TOKEN');
   });
+
+  it('rejects a well-formed refresh token whose jti is not on record', async () => {
+    const refreshToken = await loginAndGetRefreshToken();
+    mockedTokenRepo.findByJti.mockResolvedValue(null);
+
+    const res = await request(app).post('/auth/refresh').send({ refreshToken });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('INVALID_REFRESH_TOKEN');
+  });
+
+  it('revokes the family and rejects when the presented token does not match the stored hash', async () => {
+    const refreshToken = await loginAndGetRefreshToken();
+    const issued = mockedTokenRepo.persist.mock.calls[0][0];
+    mockedTokenRepo.findByJti.mockResolvedValue({
+      jti: issued.jti,
+      userUuid: USER_UUID,
+      // A stored hash that cannot match the real token — e.g. a stale/tampered record.
+      tokenHash: 'f'.repeat(64),
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: null,
+    } as never);
+
+    const res = await request(app).post('/auth/refresh').send({ refreshToken });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('INVALID_REFRESH_TOKEN');
+    expect(mockedTokenRepo.revokeFamily).toHaveBeenCalledWith(expect.any(String), 'HASH_MISMATCH');
+  });
+
+  it('rejects a refresh token past its stored expiry', async () => {
+    const refreshToken = await loginAndGetRefreshToken();
+    const issued = mockedTokenRepo.persist.mock.calls[0][0];
+    mockedTokenRepo.findByJti.mockResolvedValue({
+      jti: issued.jti,
+      userUuid: USER_UUID,
+      tokenHash: issued.tokenHash,
+      expiresAt: new Date(Date.now() - 1000),
+      revokedAt: null,
+    } as never);
+
+    const res = await request(app).post('/auth/refresh').send({ refreshToken });
+
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe('TOKEN_EXPIRED');
+  });
 });
 
 describe('POST /auth/logout', () => {
@@ -334,5 +425,39 @@ describe('POST /auth/logout', () => {
 
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe('UNAUTHORIZED');
+  });
+
+  it('ignores an unusable refresh token rather than failing the request', async () => {
+    mockedAuthRepo.findUserByLogin.mockResolvedValue(buildOpenmrsUser() as never);
+    const login = await request(app)
+      .post('/auth/login')
+      .send({ username: 'nurse01', password: PASSWORD });
+
+    const res = await request(app)
+      .post('/auth/logout')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .send({ refreshToken: 'not-a-real-token' });
+
+    expect(res.status).toBe(204);
+    expect(mockedTokenRepo.revokeFamily).not.toHaveBeenCalled();
+  });
+
+  it('treats a missing req.body as {} rather than throwing', async () => {
+    // Unreachable through the real app: express.json()/urlencoded() always
+    // initialise req.body to {} before this handler runs, even with no
+    // content-type or payload sent (see the body-less request above). The
+    // `req.body ?? {}` fallback only guards against a body-parser-less
+    // context, e.g. this handler mounted directly without that middleware —
+    // exercised here by calling it with a bare Request.
+    const req = {
+      body: undefined,
+      user: { sub: USER_UUID, username: 'nurse01', role: 'Organizational: Nurse' },
+    } as unknown as Request;
+    const res = { status: jest.fn().mockReturnThis(), send: jest.fn() } as unknown as Response;
+
+    await authController.logout(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(204);
+    expect(mockedTokenRepo.revokeAllForUser).not.toHaveBeenCalled();
   });
 });

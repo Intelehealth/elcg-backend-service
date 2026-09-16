@@ -35,44 +35,73 @@ export const LogoutRequestSchema = z.object({
 });
 
 /**
- * EZ-933 `POST /auth/requestOtp` — password-reset only (see `otp/README.md`).
- * The real client identifies the account by `phoneNumber`, not username —
- * matches the legacy `mindmap-api-NAS` request shape. `countryCode`/`source`
- * are accepted for contract compatibility; the code is actually sent to
- * whatever phone/country code are on file for the matched account, not these
- * values — see `otp.service.ts`.
+ * EZ-933 `POST /auth/requestOtp` — see `otp/README.md`. Matches the legacy
+ * `mindmap-api-NAS` request shape/behavior for both purposes it supports:
+ *
+ * - `otpFor: 'username'` — the account is identified by `phoneNumber` OR
+ *   `email` (whichever the client has); the OTP goes out on that same
+ *   channel. There is no `username` field here — recovering it is the whole
+ *   point.
+ * - `otpFor: 'password'` — identified by `username` if given, else by
+ *   `phoneNumber`/`email` (same fallback legacy uses). The code goes to
+ *   whatever phone AND email are actually on file for the matched account
+ *   (both, when both exist) — not necessarily just the field the client
+ *   supplied to identify it. `countryCode` is accepted for contract
+ *   compatibility; the *destination* country code is always the one on file,
+ *   never the request's own value — see `otp.service.ts`.
+ *
+ * At least one of `phoneNumber`/`email`/`username` is required; the refine
+ * below enforces it since no single field is unconditionally required across
+ * both purposes.
  */
-export const RequestOtpSchema = z.object({
-  otpFor: z.literal('password'),
-  phoneNumber: z
-    .string()
-    .trim()
-    .regex(/^\d{4,15}$/, 'phoneNumber must be 4-15 digits'),
-  countryCode: z
-    .string()
-    .trim()
-    .regex(/^\d{1,4}$/, 'countryCode must be digits only')
-    .optional(),
-  source: z.string().trim().max(20).optional(),
-});
+export const RequestOtpSchema = z
+  .object({
+    otpFor: z.enum(['username', 'password']),
+    phoneNumber: z
+      .string()
+      .trim()
+      .regex(/^\d{4,15}$/, 'phoneNumber must be 4-15 digits')
+      .optional(),
+    countryCode: z
+      .string()
+      .trim()
+      .regex(/^\d{1,4}$/, 'countryCode must be digits only')
+      .optional(),
+    email: z.string().trim().email('email must be a valid email address').optional(),
+    /** Only meaningful for otpFor: 'password' — ignored for 'username'. */
+    username: z.string().trim().max(100).optional(),
+    source: z.string().trim().max(20).optional(),
+  })
+  .refine((value) => Boolean(value.phoneNumber || value.email || value.username), {
+    message: 'phoneNumber, email, or username is required',
+    path: ['phoneNumber'],
+  });
 
-/** EZ-934 `POST /auth/verifyOtp` — same phone-based identification as requestOtp. */
-export const VerifyOtpSchema = z.object({
-  verifyFor: z.literal('password'),
-  phoneNumber: z
-    .string()
-    .trim()
-    .regex(/^\d{4,15}$/, 'phoneNumber must be 4-15 digits'),
-  countryCode: z
-    .string()
-    .trim()
-    .regex(/^\d{1,4}$/, 'countryCode must be digits only')
-    .optional(),
-  otp: z
-    .string()
-    .trim()
-    .regex(/^\d{4,10}$/, 'otp must be 4-10 digits'),
-});
+/** EZ-934 `POST /auth/verifyOtp` — same identification rules as requestOtp, per purpose. */
+export const VerifyOtpSchema = z
+  .object({
+    verifyFor: z.enum(['username', 'password']),
+    phoneNumber: z
+      .string()
+      .trim()
+      .regex(/^\d{4,15}$/, 'phoneNumber must be 4-15 digits')
+      .optional(),
+    countryCode: z
+      .string()
+      .trim()
+      .regex(/^\d{1,4}$/, 'countryCode must be digits only')
+      .optional(),
+    email: z.string().trim().email('email must be a valid email address').optional(),
+    username: z.string().trim().max(100).optional(),
+    otp: z
+      .string()
+      .trim()
+      .regex(/^\d{4,10}$/, 'otp must be 4-10 digits'),
+  })
+  .refine((value) => Boolean(value.phoneNumber || value.email || value.username), {
+    message: 'phoneNumber, email, or username is required',
+    path: ['phoneNumber'],
+  });
 
 /** EZ-939 `POST /auth/resetPassword/:userUuid` — gated on verifyOtp's resetToken. */
 export const ResetPasswordSchema = z.object({
@@ -91,13 +120,17 @@ export interface RequestOtpResponse {
   message: string;
 }
 
+/**
+ * `userUuid`/`resetToken`/`expiresIn` are only present for `verifyFor:
+ * 'password'` — the follow-up `POST /auth/resetPassword/:userUuid` call needs
+ * them. `verifyFor: 'username'` has no follow-up call (the username is
+ * emailed directly, see otp.service.ts/email.ts) so those fields are absent.
+ */
 export interface VerifyOtpResponse {
   verified: true;
-  /** The client has no other way to learn this — phone is its only identifier. */
-  userUuid: string;
-  /** Present to POST /auth/resetPassword/:userUuid as proof the OTP was verified. */
-  resetToken: string;
-  expiresIn: number;
+  userUuid?: string;
+  resetToken?: string;
+  expiresIn?: number;
 }
 
 /** Replaces what the legacy `GET /session` returned. */
