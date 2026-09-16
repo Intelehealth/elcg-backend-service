@@ -73,7 +73,7 @@ jobs:
         with:
           name: auth-gateway-image
           path: app-image.tar
-          retention-days: 1
+          retention-days: 7
 
   deploy:
     needs: build
