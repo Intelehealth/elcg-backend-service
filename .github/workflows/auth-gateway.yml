@@ -26,6 +26,7 @@
 name: Auth Gateway Deploy
 
 on:
+  workflow_dispatch: {}
   push:
     branches: [dev_master]
     paths:
