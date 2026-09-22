@@ -14,6 +14,14 @@
 #   REVAMP_HOST  — SSH hostname/IP
 #   SSH_USER     — SSH username
 #   SSH_KEY      — SSH private key
+#
+# IMPORTANT: if a run fails at the deploy step, use "Re-run all jobs" —
+# NOT "Re-run failed jobs only". actions/upload-artifact@v4 and
+# download-artifact@v4 scope artifacts to a specific workflow run attempt.
+# Re-running only the failed "deploy" job creates a new attempt that cannot
+# see the artifact uploaded by "build" in the previous attempt, and you'll
+# hit "Artifact not found for name: auth-gateway-image" even though build
+# succeeded earlier.
 
 name: Auth Gateway Deploy
 
@@ -22,6 +30,13 @@ on:
     branches: [dev_master]
     paths:
       - 'auth-gateway/**'
+
+# Prevents overlapping runs on the same branch from racing each other and
+# leaving inconsistent artifact/deploy state. A newer push cancels any
+# in-progress run for this branch.
+concurrency:
+  group: auth-gateway-deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   DOCKER_IMAGE_NAME: auth-gateway
@@ -73,7 +88,7 @@ jobs:
         with:
           name: auth-gateway-image
           path: app-image.tar
-          retention-days: 1
+          retention-days: 7
 
   deploy:
     needs: build
