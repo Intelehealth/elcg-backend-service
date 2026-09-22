@@ -92,6 +92,18 @@ describe('requestOtp — otpFor: "password"', () => {
     expect(sendMock).toHaveBeenCalledWith(`+91${PHONE}`, expect.any(String), expect.any(Number));
   });
 
+  it('defaults to country code 91 when the account has no countryCode attribute on file', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(
+      buildAccount({ countryCode: null }) as never,
+    );
+
+    await requestOtp({ otpFor: 'password', phoneNumber: PHONE });
+
+    expect(mockedSelectProvider).toHaveBeenCalledWith('91');
+    expect(sendMock).toHaveBeenCalledWith(`+91${PHONE}`, expect.any(String), expect.any(Number));
+    expect(mockedSettingsRepo.saveOtp).toHaveBeenCalled();
+  });
+
   it('also emails the SAME sent code when the account has both phone and email on file', async () => {
     mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount() as never);
     sendMock.mockResolvedValue('999999');
@@ -179,6 +191,19 @@ describe('requestOtp — otpFor: "username"', () => {
     expect(mockedAuthRepo.findAccountByContact).toHaveBeenCalledWith(PHONE);
     expect(sendMock).toHaveBeenCalledWith(`+91${PHONE}`, expect.any(String), expect.any(Number));
     expect(mockedEmail.sendOtpEmail).not.toHaveBeenCalled();
+    expect(mockedSettingsRepo.saveOtp).toHaveBeenCalledWith(USER_UUID, '654321', 'U');
+  });
+
+  it('defaults to country code 91 when the account has no countryCode attribute on file', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(
+      buildAccount({ countryCode: null }) as never,
+    );
+    sendMock.mockResolvedValue('654321');
+
+    await requestOtp({ otpFor: 'username', phoneNumber: PHONE });
+
+    expect(mockedSelectProvider).toHaveBeenCalledWith('91');
+    expect(sendMock).toHaveBeenCalledWith(`+91${PHONE}`, expect.any(String), expect.any(Number));
     expect(mockedSettingsRepo.saveOtp).toHaveBeenCalledWith(USER_UUID, '654321', 'U');
   });
 

@@ -14,6 +14,14 @@ import type { RequestOtpRequest, VerifyOtpRequest, VerifyOtpResponse } from '@/m
 const OTP_FOR_USERNAME_RECOVERY = 'U';
 const OTP_FOR_PASSWORD_RESET = 'P';
 
+/**
+ * OpenMRS `provider_attribute` never stores a `countryCode` row in this
+ * deployment — only `phoneNumber` — so it can't be a hard requirement.
+ * Legacy (mindmap-api-NAS's auth.controller) defaults the same way for the
+ * same reason; India ("91") is the only country this deployment serves.
+ */
+const DEFAULT_COUNTRY_CODE = '91';
+
 function generateCode(length: number): string {
   const max = 10 ** length;
   return String(crypto.randomInt(0, max)).padStart(length, '0');
@@ -69,12 +77,13 @@ async function requestUsernameRecoveryOtp(account: AccountContact, input: Reques
   const userUuid = account.user.uuid;
 
   if (input.phoneNumber) {
-    if (!account.phoneNumber || !account.countryCode) {
+    if (!account.phoneNumber) {
       logger.warn({ userUuid }, 'requestOtp(username): no phone on file for account');
       return;
     }
     try {
-      const sentCode = await sendSms(account.phoneNumber, account.countryCode, localCode);
+      const countryCode = account.countryCode ?? DEFAULT_COUNTRY_CODE;
+      const sentCode = await sendSms(account.phoneNumber, countryCode, localCode);
       await userSettingsRepository.saveOtp(userUuid, sentCode, OTP_FOR_USERNAME_RECOVERY);
     } catch (err) {
       logDeliveryFailure('sms', err, userUuid);
@@ -100,8 +109,9 @@ async function requestUsernameRecoveryOtp(account: AccountContact, input: Reques
  * `otpFor: 'password'` — sends to BOTH phone and email when both are on
  * file (the same code, matching legacy's reuse of the SMS-returned/generated
  * value for the email too), or to email alone with a freshly generated code
- * when there's no phone on file. Matches legacy's exact `if (phoneNumber &&
- * countryCode) {…if (email) {…}} else if (email) {…}` structure.
+ * when there's no phone on file. Matches legacy's exact `if (phoneNumber)
+ * {…if (email) {…}} else if (email) {…}` structure — `countryCode` defaults
+ * rather than gating, per `DEFAULT_COUNTRY_CODE` above.
  *
  * Deliberate deviation from legacy: a failed email send after a *successful*
  * SMS send is logged, not thrown — legacy's own `.catch(error => { throw
@@ -117,9 +127,10 @@ async function requestPasswordResetOtp(account: AccountContact): Promise<void> {
   const localCode = generateCode(env.OTP_LENGTH);
   const userUuid = account.user.uuid;
 
-  if (account.phoneNumber && account.countryCode) {
+  if (account.phoneNumber) {
     try {
-      const sentCode = await sendSms(account.phoneNumber, account.countryCode, localCode);
+      const countryCode = account.countryCode ?? DEFAULT_COUNTRY_CODE;
+      const sentCode = await sendSms(account.phoneNumber, countryCode, localCode);
       await userSettingsRepository.saveOtp(userUuid, sentCode, OTP_FOR_PASSWORD_RESET);
       if (account.email) {
         try {
