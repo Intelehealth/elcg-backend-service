@@ -55,7 +55,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
 export async function requestOtp(req: Request, res: Response): Promise<void> {
   const body = RequestOtpSchema.parse(req.body);
   await otpService.requestOtp(body);
-  res.status(200).json({ message: 'If the account exists, an OTP has been sent.' });
+  res.status(200).json({ message: 'The OTP has been sent.' });
 }
 
 /** EZ-934 `POST /auth/verifyOtp` */
