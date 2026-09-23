@@ -8,7 +8,12 @@ import * as userSettingsRepository from '@/modules/otp/user-settings.repository'
 import { selectProvider, SmsProviderError } from '@/modules/otp/providers';
 import { sendOtpEmail, sendUsernameEmail, EmailProviderError } from '@/modules/otp/email';
 import { signPasswordResetToken, verifyPasswordResetToken } from '@/modules/jwt/jwt.service';
-import type { RequestOtpRequest, VerifyOtpRequest, VerifyOtpResponse } from '@/modules/auth/auth.dto';
+import type {
+  RequestOtpRequest,
+  RequestOtpResult,
+  VerifyOtpRequest,
+  VerifyOtpResponse,
+} from '@/modules/auth/auth.dto';
 
 /** `user_settings.otpFor` — matches the legacy ENUM('U','P','A') exactly. 'A' (login step-up) is not implemented here. */
 const OTP_FOR_USERNAME_RECOVERY = 'U';
@@ -162,23 +167,36 @@ async function requestPasswordResetOtp(account: AccountContact): Promise<void> {
  * EZ-933 — requests an OTP for either `otpFor: 'username'` (forgot-username)
  * or `otpFor: 'password'` (password reset) — see `otp/README.md`.
  *
- * The response is identical regardless of what happens here — no account
- * match, no contact info on file, or a fully successful send all resolve the
- * same way — no signal an attacker could use to enumerate accounts (a
- * deliberate strengthening over legacy, whose messages do differ per case).
+ * The response message is identical regardless of what happens here — no
+ * account match, no contact info on file, or a fully successful send all
+ * resolve the same way for `otpFor: 'username'`.
+ *
+ * `otpFor: 'password'` is a deliberate exception, matching legacy
+ * (`portal/services/auth.service.js`): it additionally returns the matched
+ * account's `userUuid`/`providerUuid`/`role`/`roleUuid` so the client can
+ * route by role before the OTP is even verified. This does leak account
+ * existence/role to the caller — an accepted, explicit product decision to
+ * match legacy parity here, not an oversight.
  */
-export async function requestOtp(input: RequestOtpRequest): Promise<void> {
+export async function requestOtp(input: RequestOtpRequest): Promise<RequestOtpResult> {
   const account = await findAccount(input);
   if (!account) {
     logger.warn({ otpFor: input.otpFor }, 'requestOtp: no account matched');
-    return;
+    return {};
   }
 
   if (input.otpFor === 'username') {
     await requestUsernameRecoveryOtp(account, input);
-  } else {
-    await requestPasswordResetOtp(account);
+    return {};
   }
+
+  await requestPasswordResetOtp(account);
+  return {
+    userUuid: account.user.uuid,
+    providerUuid: account.providerUuid,
+    role: account.role,
+    roleUuid: account.roleUuid,
+  };
 }
 
 const INVALID_OTP = (): HttpError => new HttpError(401, 'INVALID_OTP', 'Invalid or expired code');

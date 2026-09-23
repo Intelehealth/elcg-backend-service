@@ -49,17 +49,20 @@ describe('POST /auth/requestOtp', () => {
     expect(res.status).toBe(400);
   });
 
-  it('always returns a generic 200, whether or not a phone matched an account', async () => {
+  it('otpFor: "username" always returns a generic 200, whether or not a phone matched an account — no enumeration signal', async () => {
     mockedAuthRepo.findAccountByContact.mockResolvedValue({
       user: { userId: 42, personId: 7, uuid: USER_UUID, username: 'nurse01', systemId: 'SYS01' },
       phoneNumber: PHONE,
       countryCode: '91',
       email: null,
+      providerUuid: 'provider-uuid',
+      role: 'Nurse',
+      roleUuid: 'role-uuid',
     } as never);
 
     const res = await request(app)
       .post('/auth/requestOtp')
-      .send({ otpFor: 'password', phoneNumber: PHONE, countryCode: '91', source: 'mobile' });
+      .send({ otpFor: 'username', phoneNumber: PHONE, countryCode: '91' });
 
     expect(res.status).toBe(200);
     expect(sendMock).toHaveBeenCalled();
@@ -69,10 +72,47 @@ describe('POST /auth/requestOtp', () => {
 
     const res2 = await request(app)
       .post('/auth/requestOtp')
-      .send({ otpFor: 'password', phoneNumber: '0000000000' });
+      .send({ otpFor: 'username', phoneNumber: '0000000000' });
 
     expect(res2.status).toBe(200);
     expect(res2.body).toEqual(res.body);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('otpFor: "password" deliberately returns userUuid/providerUuid/role/roleUuid for a matched account, matching legacy — an accepted enumeration trade-off for this purpose only', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue({
+      user: { userId: 42, personId: 7, uuid: USER_UUID, username: 'nurse01', systemId: 'SYS01' },
+      phoneNumber: PHONE,
+      countryCode: '91',
+      email: null,
+      providerUuid: 'provider-uuid',
+      role: 'Nurse',
+      roleUuid: 'role-uuid',
+    } as never);
+
+    const res = await request(app)
+      .post('/auth/requestOtp')
+      .send({ otpFor: 'password', phoneNumber: PHONE, countryCode: '91' });
+
+    expect(res.status).toBe(200);
+    expect(sendMock).toHaveBeenCalled();
+    expect(res.body).toEqual({
+      message: 'The OTP has been sent.',
+      userUuid: USER_UUID,
+      providerUuid: 'provider-uuid',
+      role: 'Nurse',
+      roleUuid: 'role-uuid',
+    });
+
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(null);
+    sendMock.mockClear();
+
+    const res2 = await request(app)
+      .post('/auth/requestOtp')
+      .send({ otpFor: 'password', phoneNumber: '0000000000' });
+
+    expect(res2.status).toBe(200);
+    expect(res2.body).toEqual({ message: 'The OTP has been sent.' });
     expect(sendMock).not.toHaveBeenCalled();
   });
 

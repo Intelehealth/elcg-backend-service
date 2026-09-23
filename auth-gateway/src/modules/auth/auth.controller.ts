@@ -51,11 +51,15 @@ export async function logout(req: Request, res: Response): Promise<void> {
   res.status(204).send();
 }
 
-/** EZ-933 `POST /auth/requestOtp` — always 200; see otp.service.ts for why. */
+/**
+ * EZ-933 `POST /auth/requestOtp` — always 200; see otp.service.ts for why.
+ * `result` only carries userUuid/providerUuid/role/roleUuid for a matched
+ * `otpFor: 'password'` account — otherwise it's `{}`.
+ */
 export async function requestOtp(req: Request, res: Response): Promise<void> {
   const body = RequestOtpSchema.parse(req.body);
-  await otpService.requestOtp(body);
-  res.status(200).json({ message: 'The OTP has been sent.' });
+  const result = await otpService.requestOtp(body);
+  res.status(200).json({ message: 'The OTP has been sent.', ...result });
 }
 
 /** EZ-934 `POST /auth/verifyOtp` */

@@ -17,6 +17,8 @@ const mockedSelectProvider = jest.mocked(selectProvider);
 const mockedEmail = jest.mocked(emailModule);
 
 const USER_UUID = '11111111-1111-4111-8111-111111111111';
+const PROVIDER_UUID = '22222222-2222-4222-8222-222222222222';
+const ROLE_UUID = '33333333-3333-4333-8333-333333333333';
 const PHONE = '9876543210';
 const EMAIL = 'nurse01@example.com';
 const sendMock = jest.fn().mockResolvedValue('123456');
@@ -28,6 +30,9 @@ function buildAccount(overrides: Record<string, unknown> = {}) {
     phoneNumber: PHONE,
     countryCode: '91',
     email: EMAIL,
+    providerUuid: PROVIDER_UUID,
+    role: 'Nurse',
+    roleUuid: ROLE_UUID,
     ...overrides,
   };
 }
@@ -125,7 +130,7 @@ describe('requestOtp — otpFor: "password"', () => {
     mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount() as never);
     sendMock.mockRejectedValue(new Error('provider outage'));
 
-    await expect(requestOtp({ otpFor: 'password', phoneNumber: PHONE })).resolves.toBeUndefined();
+    await requestOtp({ otpFor: 'password', phoneNumber: PHONE });
     expect(mockedSettingsRepo.saveOtp).not.toHaveBeenCalled();
     expect(mockedEmail.sendOtpEmail).not.toHaveBeenCalled();
   });
@@ -135,8 +140,29 @@ describe('requestOtp — otpFor: "password"', () => {
     sendMock.mockResolvedValue('999999');
     mockedEmail.sendOtpEmail.mockRejectedValue(new Error('SMTP down'));
 
-    await expect(requestOtp({ otpFor: 'password', phoneNumber: PHONE })).resolves.toBeUndefined();
+    await requestOtp({ otpFor: 'password', phoneNumber: PHONE });
     expect(mockedSettingsRepo.saveOtp).toHaveBeenCalledWith(USER_UUID, '999999', 'P');
+  });
+
+  it('returns userUuid/providerUuid/role/roleUuid for a matched account', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount() as never);
+
+    const result = await requestOtp({ otpFor: 'password', phoneNumber: PHONE });
+
+    expect(result).toEqual({
+      userUuid: USER_UUID,
+      providerUuid: PROVIDER_UUID,
+      role: 'Nurse',
+      roleUuid: ROLE_UUID,
+    });
+  });
+
+  it('returns {} when no account matches', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(null);
+
+    const result = await requestOtp({ otpFor: 'password', phoneNumber: PHONE });
+
+    expect(result).toEqual({});
   });
 
   it('emails a freshly generated code when the account has email but no phone on file', async () => {
@@ -244,6 +270,14 @@ describe('requestOtp — otpFor: "username"', () => {
 
     expect(mockedEmail.sendOtpEmail).not.toHaveBeenCalled();
     expect(mockedSettingsRepo.saveOtp).not.toHaveBeenCalled();
+  });
+
+  it('never returns userUuid/role, even for a matched account — role is password-reset only', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount() as never);
+
+    const result = await requestOtp({ otpFor: 'username', phoneNumber: PHONE });
+
+    expect(result).toEqual({});
   });
 });
 

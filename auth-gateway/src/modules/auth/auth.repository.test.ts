@@ -13,6 +13,7 @@ import { RoleRole } from '@/modules/users/role-role.model';
 import { RolePrivilege } from '@/modules/users/role-privilege.model';
 import { Provider } from '@/modules/users/provider.model';
 import { ProviderAttribute } from '@/modules/users/provider-attribute.model';
+import { ProviderRole } from '@/modules/users/provider-role.model';
 
 jest.mock('@/modules/users/openmrs-user.model');
 jest.mock('@/modules/users/user-role.model');
@@ -20,6 +21,7 @@ jest.mock('@/modules/users/role-role.model');
 jest.mock('@/modules/users/role-privilege.model');
 jest.mock('@/modules/users/provider.model');
 jest.mock('@/modules/users/provider-attribute.model');
+jest.mock('@/modules/users/provider-role.model');
 
 /**
  * Mirrors the real inheritance chain in the OpenMRS database: the roles actually
@@ -306,7 +308,12 @@ describe('findAccountByContact', () => {
   it('resolves every contact detail on file, not just the one that matched (an email match still returns the phone)', async () => {
     const user = buildUser();
     jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 1 } as never);
-    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+      uuid: 'provider-uuid',
+      providerRoleId: null,
+    } as never);
     jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
     jest.mocked(ProviderAttribute.findAll).mockResolvedValue([
       { attributeType: { name: 'phoneNumber' }, valueReference: '9999999999' },
@@ -321,18 +328,53 @@ describe('findAccountByContact', () => {
       phoneNumber: '9999999999',
       countryCode: '91',
       email: 'nurse01@example.com',
+      providerUuid: 'provider-uuid',
+      role: null,
+      roleUuid: null,
     });
   });
 
   it('defaults phoneNumber/countryCode/email to null when none are on file', async () => {
     const user = buildUser();
     jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 1 } as never);
-    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+      uuid: 'provider-uuid',
+      providerRoleId: null,
+    } as never);
     jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
 
     const result = await findAccountByContact('9999999999');
 
-    expect(result).toEqual({ user, phoneNumber: null, countryCode: null, email: null });
+    expect(result).toEqual({
+      user,
+      phoneNumber: null,
+      countryCode: null,
+      email: null,
+      providerUuid: 'provider-uuid',
+      role: null,
+      roleUuid: null,
+    });
+  });
+
+  it('resolves role/roleUuid from providermanagement_provider_role via provider_role_id', async () => {
+    const user = buildUser();
+    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 1 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+      uuid: 'provider-uuid',
+      providerRoleId: 9,
+    } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
+    jest.mocked(ProviderRole.findOne).mockResolvedValue({ name: 'Nurse', uuid: 'role-uuid' } as never);
+
+    const result = await findAccountByContact('9999999999');
+
+    expect(ProviderRole.findOne).toHaveBeenCalledWith({ where: { providerRoleId: 9 } });
+    expect(result?.role).toBe('Nurse');
+    expect(result?.roleUuid).toBe('role-uuid');
   });
 });
 
@@ -357,7 +399,12 @@ describe('findAccountByUsername', () => {
   it('resolves the account and its contact details for a username match', async () => {
     const user = buildUser();
     jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
-    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7 } as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+      uuid: 'provider-uuid',
+      providerRoleId: null,
+    } as never);
     jest.mocked(ProviderAttribute.findAll).mockResolvedValue([
       { attributeType: { name: 'phoneNumber' }, valueReference: '9999999999' },
       { attributeType: { name: 'countryCode' }, valueReference: '91' },
@@ -371,6 +418,9 @@ describe('findAccountByUsername', () => {
       phoneNumber: '9999999999',
       countryCode: '91',
       email: 'nurse01@example.com',
+      providerUuid: 'provider-uuid',
+      role: null,
+      roleUuid: null,
     });
   });
 });

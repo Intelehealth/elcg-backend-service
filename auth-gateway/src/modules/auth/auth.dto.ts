@@ -116,7 +116,19 @@ export type RequestOtpRequest = z.infer<typeof RequestOtpSchema>;
 export type VerifyOtpRequest = z.infer<typeof VerifyOtpSchema>;
 export type ResetPasswordRequest = z.infer<typeof ResetPasswordSchema>;
 
-export interface RequestOtpResponse {
+/**
+ * Only populated for `otpFor: 'password'` on a matched account — `otpFor:
+ * 'username'` and a no-match both resolve to `{}`, matching legacy's
+ * role/providerUuid fields being password-reset-only. See otp.service.ts.
+ */
+export interface RequestOtpResult {
+  userUuid?: string;
+  providerUuid?: string;
+  role?: string | null;
+  roleUuid?: string | null;
+}
+
+export interface RequestOtpResponse extends RequestOtpResult {
   message: string;
 }
 

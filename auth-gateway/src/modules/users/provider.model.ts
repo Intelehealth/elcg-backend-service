@@ -13,6 +13,8 @@ export class Provider extends Model<InferAttributes<Provider>, InferCreationAttr
   declare identifier: string | null;
   declare retired: boolean;
   declare uuid: string;
+  /** FK into `providermanagement_provider_role` — null when no role is assigned. */
+  declare providerRoleId: number | null;
 
   declare person?: NonAttribute<Person>;
 }
@@ -25,6 +27,7 @@ Provider.init(
     identifier: { type: DataTypes.STRING(255), field: 'identifier' },
     retired: { type: DataTypes.BOOLEAN, field: 'retired' },
     uuid: { type: DataTypes.CHAR(38), field: 'uuid' },
+    providerRoleId: { type: DataTypes.INTEGER, field: 'provider_role_id' },
   },
   { sequelize: openmrsSequelize, modelName: 'Provider', tableName: 'provider' },
 );

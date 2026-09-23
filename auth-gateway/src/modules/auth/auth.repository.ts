@@ -3,6 +3,7 @@ import { OpenmrsUser } from '@/modules/users/openmrs-user.model';
 import { Person } from '@/modules/users/person.model';
 import { PersonName } from '@/modules/users/person-name.model';
 import { Provider } from '@/modules/users/provider.model';
+import { ProviderRole } from '@/modules/users/provider-role.model';
 import { UserRole } from '@/modules/users/user-role.model';
 import { RolePrivilege } from '@/modules/users/role-privilege.model';
 import { RoleRole } from '@/modules/users/role-role.model';
@@ -214,13 +215,25 @@ export interface AccountContact {
   phoneNumber: string | null;
   countryCode: string | null;
   email: string | null;
+  providerUuid: string;
+  role: string | null;
+  roleUuid: string | null;
+}
+
+/** `provider.provider_role_id` → `providermanagement_provider_role` — mirrors legacy's two-step role lookup exactly. */
+async function findProviderRole(
+  providerRoleId: number | null,
+): Promise<{ role: string | null; roleUuid: string | null }> {
+  if (!providerRoleId) return { role: null, roleUuid: null };
+  const providerRole = await ProviderRole.findOne({ where: { providerRoleId } });
+  return { role: providerRole?.name ?? null, roleUuid: providerRole?.uuid ?? null };
 }
 
 /** Shared by findAccountByContact/findAccountByUsername below — resolves the rest of an account's contact details once its `Provider` row is known. */
-async function loadAccountContact(providerId: number, personId: number): Promise<AccountContact | null> {
-  const [user, attributes] = await Promise.all([
+async function loadAccountContact(provider: Provider): Promise<AccountContact | null> {
+  const [user, attributes, { role, roleUuid }] = await Promise.all([
     OpenmrsUser.findOne({
-      where: { personId, retired: false },
+      where: { personId: provider.personId, retired: false },
       include: [
         {
           model: Person,
@@ -230,7 +243,8 @@ async function loadAccountContact(providerId: number, personId: number): Promise
         },
       ],
     }),
-    findProviderAttributes(providerId),
+    findProviderAttributes(provider.providerId),
+    findProviderRole(provider.providerRoleId),
   ]);
   if (!user) return null;
 
@@ -239,6 +253,9 @@ async function loadAccountContact(providerId: number, personId: number): Promise
     phoneNumber: attributes.phoneNumber ?? null,
     countryCode: attributes.countryCode ?? null,
     email: attributes.emailId ?? null,
+    providerUuid: provider.uuid,
+    role,
+    roleUuid,
   };
 }
 
@@ -273,7 +290,7 @@ export async function findAccountByContact(value: string): Promise<AccountContac
   const provider = await Provider.findOne({ where: { providerId: attribute.providerId, retired: false } });
   if (!provider) return null;
 
-  return loadAccountContact(provider.providerId, provider.personId);
+  return loadAccountContact(provider);
 }
 
 /**
@@ -289,7 +306,7 @@ export async function findAccountByUsername(login: string): Promise<AccountConta
   const provider = await Provider.findOne({ where: { personId: user.personId, retired: false } });
   if (!provider) return null;
 
-  return loadAccountContact(provider.providerId, provider.personId);
+  return loadAccountContact(provider);
 }
 
 /**
