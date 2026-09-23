@@ -1,4 +1,4 @@
-import { Op } from 'sequelize';
+import { Op, Sequelize } from 'sequelize';
 import { OpenmrsUser } from '@/modules/users/openmrs-user.model';
 import { Person } from '@/modules/users/person.model';
 import { PersonName } from '@/modules/users/person-name.model';
@@ -303,7 +303,10 @@ export async function findAccountByUsername(login: string): Promise<AccountConta
   const user = await findUserByLogin(login);
   if (!user) return null;
 
-  const provider = await Provider.findOne({ where: { personId: user.personId, retired: false } });
+  const provider = await Provider.findOne({
+    where: { personId: user.personId, retired: false },
+    order: [[Sequelize.literal('provider_role_id IS NULL'), 'ASC']],
+  });
   if (!provider) return null;
 
   return loadAccountContact(provider);
@@ -323,7 +326,10 @@ async function findProvider(
   personId: number,
   person: { uuid: string; display: string; gender: string | null; birthdate: string | null },
 ): Promise<OpenmrsIdentity['provider']> {
-  const provider = await Provider.findOne({ where: { personId, retired: false } });
+  const provider = await Provider.findOne({
+    where: { personId, retired: false },
+    order: [[Sequelize.literal('provider_role_id IS NULL'), 'ASC']],
+  });
   if (!provider) return null;
 
   const name = provider.name?.trim();

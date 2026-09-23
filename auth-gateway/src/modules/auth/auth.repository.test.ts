@@ -423,6 +423,25 @@ describe('findAccountByUsername', () => {
       roleUuid: null,
     });
   });
+
+  it('orders the provider lookup to prefer a row with a non-null provider_role_id', async () => {
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(buildUser() as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({
+      providerId: 1,
+      personId: 7,
+      uuid: 'provider-uuid',
+      providerRoleId: 3,
+    } as never);
+
+    await findAccountByUsername('nurse01');
+
+    expect(Provider.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { personId: 7, retired: false },
+        order: expect.anything(),
+      }),
+    );
+  });
 });
 
 describe('loadIdentity — display-name resolution', () => {
