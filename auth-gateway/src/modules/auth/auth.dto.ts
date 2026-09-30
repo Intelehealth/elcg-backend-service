@@ -126,6 +126,8 @@ export interface RequestOtpResult {
   providerUuid?: string;
   role?: string | null;
   roleUuid?: string | null;
+  /** The account's OpenMRS `user_role` roles — same as login's `user.roles`. */
+  roles?: string[];
   source?: string;
   /** False only for a Doctor on `source: 'mobile'` — no OTP was sent. */
   otpRequired?: boolean;

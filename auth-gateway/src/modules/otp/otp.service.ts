@@ -199,7 +199,8 @@ export async function requestOtp(input: RequestOtpRequest): Promise<RequestOtpRe
   // is a Doctor on the mobile app, who is let straight through without an OTP.
   // Every other role (Nurse included), and any web request, gets one.
   const source = input.source ?? DEFAULT_SOURCE;
-  const otpRequired = !(source === 'mobile' && account.role?.toLowerCase() === 'doctor');
+  const isDoctor = account.roles.some((role) => role.toLowerCase() === 'organizational: doctor');
+  const otpRequired = !(source === 'mobile' && isDoctor);
   if (otpRequired) await requestPasswordResetOtp(account);
 
   return {
@@ -207,6 +208,7 @@ export async function requestOtp(input: RequestOtpRequest): Promise<RequestOtpRe
     providerUuid: account.providerUuid,
     role: account.role,
     roleUuid: account.roleUuid,
+    roles: account.roles,
     source,
     otpRequired,
   };

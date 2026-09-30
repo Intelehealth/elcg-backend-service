@@ -13,7 +13,7 @@ import { RoleRole } from '@/modules/users/role-role.model';
 import { RolePrivilege } from '@/modules/users/role-privilege.model';
 import { Provider } from '@/modules/users/provider.model';
 import { ProviderAttribute } from '@/modules/users/provider-attribute.model';
-import { ProviderRole } from '@/modules/users/provider-role.model';
+import { Role } from '@/modules/users/role.model';
 
 jest.mock('@/modules/users/openmrs-user.model');
 jest.mock('@/modules/users/user-role.model');
@@ -21,7 +21,7 @@ jest.mock('@/modules/users/role-role.model');
 jest.mock('@/modules/users/role-privilege.model');
 jest.mock('@/modules/users/provider.model');
 jest.mock('@/modules/users/provider-attribute.model');
-jest.mock('@/modules/users/provider-role.model');
+jest.mock('@/modules/users/role.model');
 
 /**
  * Mirrors the real inheritance chain in the OpenMRS database: the roles actually
@@ -76,6 +76,7 @@ beforeEach(() => {
   });
 
   jest.mocked(ProviderAttribute.findAll).mockResolvedValue([] as never);
+  jest.mocked(Role.findOne).mockResolvedValue(null);
 });
 
 describe('loadIdentity — privilege inheritance', () => {
@@ -329,7 +330,8 @@ describe('findAccountByContact', () => {
       countryCode: '91',
       email: 'nurse01@example.com',
       providerUuid: 'provider-uuid',
-      role: null,
+      roles: ['Organizational: Nurse'],
+      role: 'Organizational: Nurse',
       roleUuid: null,
     });
   });
@@ -353,28 +355,44 @@ describe('findAccountByContact', () => {
       countryCode: null,
       email: null,
       providerUuid: 'provider-uuid',
-      role: null,
+      roles: ['Organizational: Nurse'],
+      role: 'Organizational: Nurse',
       roleUuid: null,
     });
   });
 
-  it('resolves role/roleUuid from providermanagement_provider_role via provider_role_id', async () => {
+  it('resolves role/roleUuid/roles from the same user_role roles login returns', async () => {
     const user = buildUser();
     jest.mocked(ProviderAttribute.findAll).mockResolvedValueOnce([{ providerId: 1 }] as never);
     jest.mocked(Provider.findOne).mockResolvedValue({
       providerId: 1,
       personId: 7,
       uuid: 'provider-uuid',
-      providerRoleId: 9,
     } as never);
     jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
-    jest.mocked(ProviderRole.findOne).mockResolvedValue({ name: 'Nurse', uuid: 'role-uuid' } as never);
+    jest.mocked(UserRole.findAll).mockResolvedValue([
+      { role: 'Organizational: Nurse' },
+      { role: 'Provider' },
+    ] as never);
+    jest.mocked(Role.findOne).mockResolvedValue({ role: 'Organizational: Nurse', uuid: 'role-uuid' } as never);
 
     const result = await findAccountByContact('9999999999');
 
-    expect(ProviderRole.findOne).toHaveBeenCalledWith({ where: { providerRoleId: 9 } });
-    expect(result?.role).toBe('Nurse');
+    expect(Role.findOne).toHaveBeenCalledWith({ where: { role: 'Organizational: Nurse' } });
+    expect(result?.roles).toEqual(['Organizational: Nurse', 'Provider']);
+    expect(result?.role).toBe('Organizational: Nurse');
     expect(result?.roleUuid).toBe('role-uuid');
+  });
+
+  it('returns role/roleUuid null and no roles when the user has no user_role rows', async () => {
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValueOnce([{ providerId: 1 }] as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 1, personId: 7, uuid: 'p' } as never);
+    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(buildUser() as never);
+    jest.mocked(UserRole.findAll).mockResolvedValue([] as never);
+
+    const result = await findAccountByContact('9999999999');
+
+    expect(result).toMatchObject({ roles: [], role: null, roleUuid: null });
   });
 
   it('skips a match whose provider is retired/user-less and resolves the next live account with the same value', async () => {
@@ -435,7 +453,8 @@ describe('findAccountByUsername', () => {
       countryCode: '91',
       email: 'nurse01@example.com',
       providerUuid: 'provider-uuid',
-      role: null,
+      roles: ['Organizational: Nurse'],
+      role: 'Organizational: Nurse',
       roleUuid: null,
     });
   });

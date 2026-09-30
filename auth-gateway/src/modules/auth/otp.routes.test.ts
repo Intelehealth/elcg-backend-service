@@ -56,7 +56,8 @@ describe('POST /auth/requestOtp', () => {
       countryCode: '91',
       email: null,
       providerUuid: 'provider-uuid',
-      role: 'Nurse',
+      roles: ['Organizational: Nurse'],
+      role: 'Organizational: Nurse',
       roleUuid: 'role-uuid',
     } as never);
 
@@ -86,7 +87,8 @@ describe('POST /auth/requestOtp', () => {
       countryCode: '91',
       email: null,
       providerUuid: 'provider-uuid',
-      role: 'Doctor',
+      roles: ['Organizational: Doctor', 'Provider'],
+      role: 'Organizational: Doctor',
       roleUuid: 'role-uuid',
     } as never);
 
@@ -98,7 +100,8 @@ describe('POST /auth/requestOtp', () => {
     expect(sendMock).not.toHaveBeenCalled();
     expect(res.body).toMatchObject({
       message: 'OTP not required for doctor on mobile. Login allowed.',
-      role: 'Doctor',
+      role: 'Organizational: Doctor',
+      roles: ['Organizational: Doctor', 'Provider'],
       source: 'mobile',
       otpRequired: false,
     });
@@ -111,7 +114,8 @@ describe('POST /auth/requestOtp', () => {
       countryCode: '91',
       email: null,
       providerUuid: 'provider-uuid',
-      role: 'Nurse',
+      roles: ['Organizational: Nurse'],
+      role: 'Organizational: Nurse',
       roleUuid: 'role-uuid',
     } as never);
 
@@ -125,8 +129,9 @@ describe('POST /auth/requestOtp', () => {
       message: 'The OTP has been sent.',
       userUuid: USER_UUID,
       providerUuid: 'provider-uuid',
-      role: 'Nurse',
+      role: 'Organizational: Nurse',
       roleUuid: 'role-uuid',
+      roles: ['Organizational: Nurse'],
       source: 'web',
       otpRequired: true,
     });

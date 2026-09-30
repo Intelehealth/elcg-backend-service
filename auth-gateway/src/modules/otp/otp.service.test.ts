@@ -31,7 +31,8 @@ function buildAccount(overrides: Record<string, unknown> = {}) {
     countryCode: '91',
     email: EMAIL,
     providerUuid: PROVIDER_UUID,
-    role: 'Nurse',
+    roles: ['Organizational: Nurse'],
+    role: 'Organizational: Nurse',
     roleUuid: ROLE_UUID,
     ...overrides,
   };
@@ -152,25 +153,28 @@ describe('requestOtp — otpFor: "password"', () => {
     expect(result).toEqual({
       userUuid: USER_UUID,
       providerUuid: PROVIDER_UUID,
-      role: 'Nurse',
+      role: 'Organizational: Nurse',
       roleUuid: ROLE_UUID,
+      roles: ['Organizational: Nurse'],
       source: 'web',
       otpRequired: true,
     });
   });
 
   it.each([
-    ['Nurse', 'mobile', true],
-    ['Doctor', 'web', true],
-    ['Doctor', 'mobile', false],
-    ['doctor', 'mobile', false],
-    [null, 'mobile', true],
-  ])('role %s on source %s -> otpRequired %s', async (role, source, otpRequired) => {
-    mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount({ role }) as never);
+    [['Organizational: Nurse'], 'mobile', true],
+    [['Organizational: Doctor', 'Provider'], 'web', true],
+    [['Organizational: Doctor', 'Provider'], 'mobile', false],
+    [['organizational: doctor'], 'mobile', false],
+    [[], 'mobile', true],
+  ])('roles %j on source %s -> otpRequired %s', async (roles, source, otpRequired) => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(
+      buildAccount({ roles, role: roles[0] ?? null }) as never,
+    );
 
     const result = await requestOtp({ otpFor: 'password', phoneNumber: PHONE, source });
 
-    expect(result).toMatchObject({ role, source, otpRequired });
+    expect(result).toMatchObject({ roles, source, otpRequired });
     expect(sendMock).toHaveBeenCalledTimes(otpRequired ? 1 : 0);
     expect(mockedSettingsRepo.saveOtp).toHaveBeenCalledTimes(otpRequired ? 1 : 0);
   });
