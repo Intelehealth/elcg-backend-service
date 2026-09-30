@@ -64,6 +64,16 @@ describe('requestOtp — otpFor: "password"', () => {
     expect(mockedAuthRepo.findAccountByContact).not.toHaveBeenCalled();
   });
 
+  it('requires the contact to belong to the username when both are given', async () => {
+    mockedAuthRepo.findAccountByUsernameAndContact.mockResolvedValue(buildAccount() as never);
+
+    await requestOtp({ otpFor: 'password', username: 'nurse01', phoneNumber: PHONE });
+
+    expect(mockedAuthRepo.findAccountByUsernameAndContact).toHaveBeenCalledWith('nurse01', PHONE);
+    expect(mockedAuthRepo.findAccountByUsername).not.toHaveBeenCalled();
+    expect(mockedAuthRepo.findAccountByContact).not.toHaveBeenCalled();
+  });
+
   it('falls back to the phone/email lookup when no username is given', async () => {
     mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount() as never);
 

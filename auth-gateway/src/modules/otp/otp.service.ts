@@ -62,8 +62,9 @@ function logDeliveryFailure(channel: 'sms' | 'email', err: unknown, userUuid: st
  * username to look up by in the first place).
  */
 async function findAccount(input: RequestOtpRequest | VerifyOtpRequest): Promise<AccountContact | null> {
-  if (input.username) return authRepository.findAccountByUsername(input.username);
   const contact = input.phoneNumber ?? input.email;
+  if (input.username && contact) return authRepository.findAccountByUsernameAndContact(input.username, contact);
+  if (input.username) return authRepository.findAccountByUsername(input.username);
   // Unreachable in practice — RequestOtpSchema/VerifyOtpSchema's `.refine`
   // already requires one of phoneNumber/email/username.
   if (!contact) return null;

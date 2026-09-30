@@ -274,7 +274,11 @@ async function loadAccountContact(provider: Provider): Promise<AccountContact | 
  * `otpFor: 'password'` sends to both channels when both exist.
  */
 export async function findAccountByContact(value: string): Promise<AccountContact | null> {
-  const attribute = await ProviderAttribute.findOne({
+  // The same phone/email can sit on several providers (a retired or user-less
+  // duplicate, or an old attribute row left behind by a profile edit), so
+  // taking only the first match could land on a dead account while the live
+  // one is never tried. Newest attribute first, first *usable* account wins.
+  const attributes = await ProviderAttribute.findAll({
     where: { valueReference: value, voided: false },
     include: [
       {
@@ -284,13 +288,16 @@ export async function findAccountByContact(value: string): Promise<AccountContac
         required: true,
       },
     ],
+    order: [['providerAttributeId', 'DESC']],
   });
-  if (!attribute) return null;
 
-  const provider = await Provider.findOne({ where: { providerId: attribute.providerId, retired: false } });
-  if (!provider) return null;
-
-  return loadAccountContact(provider);
+  for (const attribute of attributes) {
+    const provider = await Provider.findOne({ where: { providerId: attribute.providerId, retired: false } });
+    if (!provider) continue;
+    const account = await loadAccountContact(provider);
+    if (account) return account;
+  }
+  return null;
 }
 
 /**
@@ -308,6 +315,42 @@ export async function findAccountByUsername(login: string): Promise<AccountConta
     order: [[Sequelize.literal('provider_role_id IS NULL'), 'ASC']],
   });
   if (!provider) return null;
+
+  return loadAccountContact(provider);
+}
+
+/**
+ * `otpFor: 'password'` with BOTH a username and the phone/email the user typed
+ * — mirrors legacy's `value_reference = ? AND (u.username = ? OR u.system_id
+ * = ?)` query. The contact must belong to THAT account, so a number shared by
+ * several providers can never resolve to (or text an OTP to) someone else's
+ * account, and a typo'd contact no longer silently resets the on-file one.
+ */
+export async function findAccountByUsernameAndContact(
+  login: string,
+  value: string,
+): Promise<AccountContact | null> {
+  const user = await findUserByLogin(login);
+  if (!user) return null;
+
+  const provider = await Provider.findOne({
+    where: { personId: user.personId, retired: false },
+    order: [[Sequelize.literal('provider_role_id IS NULL'), 'ASC']],
+  });
+  if (!provider) return null;
+
+  const owned = await ProviderAttribute.findOne({
+    where: { providerId: provider.providerId, valueReference: value, voided: false },
+    include: [
+      {
+        model: ProviderAttributeType,
+        as: 'attributeType',
+        where: { name: { [Op.in]: ['phoneNumber', 'emailId'] } },
+        required: true,
+      },
+    ],
+  });
+  if (!owned) return null;
 
   return loadAccountContact(provider);
 }
