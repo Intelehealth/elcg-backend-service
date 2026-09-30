@@ -3,7 +3,6 @@ import {
   findAccountByContact,
   findAccountByPhoneNumber,
   findAccountByUsername,
-  findAccountByUsernameAndContact,
   findUserByLogin,
   findUserByUuid,
   loadIdentity,
@@ -581,38 +580,5 @@ describe('calculateAge (via the provider payload)', () => {
     const identity = await loadIdentity(user);
 
     expect(identity.provider?.person.age).toBeNull();
-  });
-});
-
-describe('findAccountByUsernameAndContact', () => {
-  beforeEach(() => {
-    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([] as never);
-  });
-
-  it('returns null when the contact is not on the username\'s own provider (shared numbers never cross accounts)', async () => {
-    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(buildUser() as never);
-    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 5, personId: 7 } as never);
-    jest.mocked(ProviderAttribute.findOne).mockResolvedValue(null);
-
-    await expect(findAccountByUsernameAndContact('nurse01', '9999999999')).resolves.toBeNull();
-    expect(ProviderAttribute.findOne).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { providerId: 5, valueReference: '9999999999', voided: false } }),
-    );
-  });
-
-  it('resolves the account when the contact belongs to that provider', async () => {
-    const user = buildUser();
-    jest.mocked(OpenmrsUser.findOne).mockResolvedValue(user as never);
-    jest.mocked(Provider.findOne).mockResolvedValue({
-      providerId: 5,
-      personId: 7,
-      uuid: 'provider-uuid',
-      providerRoleId: null,
-    } as never);
-    jest.mocked(ProviderAttribute.findOne).mockResolvedValue({ providerId: 5 } as never);
-
-    const result = await findAccountByUsernameAndContact('nurse01', '9999999999');
-
-    expect(result?.providerUuid).toBe('provider-uuid');
   });
 });

@@ -320,42 +320,6 @@ export async function findAccountByUsername(login: string): Promise<AccountConta
 }
 
 /**
- * `otpFor: 'password'` with BOTH a username and the phone/email the user typed
- * — mirrors legacy's `value_reference = ? AND (u.username = ? OR u.system_id
- * = ?)` query. The contact must belong to THAT account, so a number shared by
- * several providers can never resolve to (or text an OTP to) someone else's
- * account, and a typo'd contact no longer silently resets the on-file one.
- */
-export async function findAccountByUsernameAndContact(
-  login: string,
-  value: string,
-): Promise<AccountContact | null> {
-  const user = await findUserByLogin(login);
-  if (!user) return null;
-
-  const provider = await Provider.findOne({
-    where: { personId: user.personId, retired: false },
-    order: [[Sequelize.literal('provider_role_id IS NULL'), 'ASC']],
-  });
-  if (!provider) return null;
-
-  const owned = await ProviderAttribute.findOne({
-    where: { providerId: provider.providerId, valueReference: value, voided: false },
-    include: [
-      {
-        model: ProviderAttributeType,
-        as: 'attributeType',
-        where: { name: { [Op.in]: ['phoneNumber', 'emailId'] } },
-        required: true,
-      },
-    ],
-  });
-  if (!owned) return null;
-
-  return loadAccountContact(provider);
-}
-
-/**
  * Loads the provider profile hanging off the same `person_id` as the user.
  *
  * `provider.name` is NULL for 436 of the 438 active providers in this database,

@@ -64,16 +64,6 @@ describe('requestOtp — otpFor: "password"', () => {
     expect(mockedAuthRepo.findAccountByContact).not.toHaveBeenCalled();
   });
 
-  it('requires the contact to belong to the username when both are given', async () => {
-    mockedAuthRepo.findAccountByUsernameAndContact.mockResolvedValue(buildAccount() as never);
-
-    await requestOtp({ otpFor: 'password', username: 'nurse01', phoneNumber: PHONE });
-
-    expect(mockedAuthRepo.findAccountByUsernameAndContact).toHaveBeenCalledWith('nurse01', PHONE);
-    expect(mockedAuthRepo.findAccountByUsername).not.toHaveBeenCalled();
-    expect(mockedAuthRepo.findAccountByContact).not.toHaveBeenCalled();
-  });
-
   it('falls back to the phone/email lookup when no username is given', async () => {
     mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount() as never);
 
@@ -164,7 +154,25 @@ describe('requestOtp — otpFor: "password"', () => {
       providerUuid: PROVIDER_UUID,
       role: 'Nurse',
       roleUuid: ROLE_UUID,
+      source: 'web',
+      otpRequired: true,
     });
+  });
+
+  it.each([
+    ['Nurse', 'mobile', true],
+    ['Doctor', 'web', true],
+    ['Doctor', 'mobile', false],
+    ['doctor', 'mobile', false],
+    [null, 'mobile', true],
+  ])('role %s on source %s -> otpRequired %s', async (role, source, otpRequired) => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue(buildAccount({ role }) as never);
+
+    const result = await requestOtp({ otpFor: 'password', phoneNumber: PHONE, source });
+
+    expect(result).toMatchObject({ role, source, otpRequired });
+    expect(sendMock).toHaveBeenCalledTimes(otpRequired ? 1 : 0);
+    expect(mockedSettingsRepo.saveOtp).toHaveBeenCalledTimes(otpRequired ? 1 : 0);
   });
 
   it('returns {} when no account matches', async () => {

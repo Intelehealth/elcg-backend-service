@@ -27,6 +27,9 @@ const OTP_FOR_PASSWORD_RESET = 'P';
  */
 const DEFAULT_COUNTRY_CODE = '91';
 
+/** Legacy's `requestOtp(..., source = "web")` default. */
+const DEFAULT_SOURCE = 'web';
+
 function generateCode(length: number): string {
   const max = 10 ** length;
   return String(crypto.randomInt(0, max)).padStart(length, '0');
@@ -62,9 +65,8 @@ function logDeliveryFailure(channel: 'sms' | 'email', err: unknown, userUuid: st
  * username to look up by in the first place).
  */
 async function findAccount(input: RequestOtpRequest | VerifyOtpRequest): Promise<AccountContact | null> {
-  const contact = input.phoneNumber ?? input.email;
-  if (input.username && contact) return authRepository.findAccountByUsernameAndContact(input.username, contact);
   if (input.username) return authRepository.findAccountByUsername(input.username);
+  const contact = input.phoneNumber ?? input.email;
   // Unreachable in practice — RequestOtpSchema/VerifyOtpSchema's `.refine`
   // already requires one of phoneNumber/email/username.
   if (!contact) return null;
@@ -174,8 +176,10 @@ async function requestPasswordResetOtp(account: AccountContact): Promise<void> {
  *
  * `otpFor: 'password'` is a deliberate exception, matching legacy
  * (`portal/services/auth.service.js`): it additionally returns the matched
- * account's `userUuid`/`providerUuid`/`role`/`roleUuid` so the client can
- * route by role before the OTP is even verified. This does leak account
+ * account's `userUuid`/`providerUuid`/`role`/`roleUuid` (plus `source` and
+ * `otpRequired`, false only for a Doctor on `source: 'mobile'`, in which case
+ * no OTP is sent) so the client can route by role before the OTP is even
+ * verified. This does leak account
  * existence/role to the caller — an accepted, explicit product decision to
  * match legacy parity here, not an oversight.
  */
@@ -191,12 +195,20 @@ export async function requestOtp(input: RequestOtpRequest): Promise<RequestOtpRe
     return {};
   }
 
-  await requestPasswordResetOtp(account);
+  // Legacy parity (`portal/services/auth.service.js`): the only special case
+  // is a Doctor on the mobile app, who is let straight through without an OTP.
+  // Every other role (Nurse included), and any web request, gets one.
+  const source = input.source ?? DEFAULT_SOURCE;
+  const otpRequired = !(source === 'mobile' && account.role?.toLowerCase() === 'doctor');
+  if (otpRequired) await requestPasswordResetOtp(account);
+
   return {
     userUuid: account.user.uuid,
     providerUuid: account.providerUuid,
     role: account.role,
     roleUuid: account.roleUuid,
+    source,
+    otpRequired,
   };
 }
 

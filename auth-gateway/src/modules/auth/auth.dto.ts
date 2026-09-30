@@ -126,6 +126,9 @@ export interface RequestOtpResult {
   providerUuid?: string;
   role?: string | null;
   roleUuid?: string | null;
+  source?: string;
+  /** False only for a Doctor on `source: 'mobile'` — no OTP was sent. */
+  otpRequired?: boolean;
 }
 
 export interface RequestOtpResponse extends RequestOtpResult {

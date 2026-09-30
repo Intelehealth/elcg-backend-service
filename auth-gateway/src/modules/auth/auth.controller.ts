@@ -59,7 +59,11 @@ export async function logout(req: Request, res: Response): Promise<void> {
 export async function requestOtp(req: Request, res: Response): Promise<void> {
   const body = RequestOtpSchema.parse(req.body);
   const result = await otpService.requestOtp(body);
-  res.status(200).json({ message: 'The OTP has been sent.', ...result });
+  const message =
+    result.otpRequired === false
+      ? 'OTP not required for doctor on mobile. Login allowed.'
+      : 'The OTP has been sent.';
+  res.status(200).json({ message, ...result });
 }
 
 /** EZ-934 `POST /auth/verifyOtp` */

@@ -79,6 +79,31 @@ describe('POST /auth/requestOtp', () => {
     expect(sendMock).not.toHaveBeenCalled();
   });
 
+  it('source: "mobile" with a Doctor role sends no OTP and says so, matching legacy', async () => {
+    mockedAuthRepo.findAccountByContact.mockResolvedValue({
+      user: { userId: 42, personId: 7, uuid: USER_UUID, username: 'doc01', systemId: 'SYS01' },
+      phoneNumber: PHONE,
+      countryCode: '91',
+      email: null,
+      providerUuid: 'provider-uuid',
+      role: 'Doctor',
+      roleUuid: 'role-uuid',
+    } as never);
+
+    const res = await request(app)
+      .post('/auth/requestOtp')
+      .send({ otpFor: 'password', phoneNumber: PHONE, countryCode: '91', source: 'mobile' });
+
+    expect(res.status).toBe(200);
+    expect(sendMock).not.toHaveBeenCalled();
+    expect(res.body).toMatchObject({
+      message: 'OTP not required for doctor on mobile. Login allowed.',
+      role: 'Doctor',
+      source: 'mobile',
+      otpRequired: false,
+    });
+  });
+
   it('otpFor: "password" deliberately returns userUuid/providerUuid/role/roleUuid for a matched account, matching legacy — an accepted enumeration trade-off for this purpose only', async () => {
     mockedAuthRepo.findAccountByContact.mockResolvedValue({
       user: { userId: 42, personId: 7, uuid: USER_UUID, username: 'nurse01', systemId: 'SYS01' },
@@ -102,6 +127,8 @@ describe('POST /auth/requestOtp', () => {
       providerUuid: 'provider-uuid',
       role: 'Nurse',
       roleUuid: 'role-uuid',
+      source: 'web',
+      otpRequired: true,
     });
 
     mockedAuthRepo.findAccountByContact.mockResolvedValue(null);
