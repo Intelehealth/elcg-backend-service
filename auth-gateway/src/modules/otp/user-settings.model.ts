@@ -31,6 +31,8 @@ export class UserSettings extends Model<
   declare userUuid: string;
   declare otp: string | null;
   declare otpFor: 'U' | 'P' | 'A' | null;
+  /** NOT NULL with no DB default — a first-ever row (new user) must supply it. */
+  declare snoozeTill: CreationOptional<string>;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -40,6 +42,11 @@ UserSettings.init(
     userUuid: { type: DataTypes.STRING(100), field: 'user_uuid', primaryKey: true },
     otp: { type: DataTypes.STRING(10), field: 'otp', allowNull: true },
     otpFor: { type: DataTypes.ENUM('U', 'P', 'A'), field: 'otpFor', allowNull: true },
+    // `user_settings.snooze_till` is NOT NULL with no default, so an INSERT that
+    // omits it fails under strict SQL mode (ER_NO_DEFAULT_FOR_FIELD). Legacy's
+    // model defaults it to '' — a user with no row yet (never subscribed to
+    // push notifications) could otherwise never be given an OTP.
+    snoozeTill: { type: DataTypes.STRING(255), field: 'snooze_till', allowNull: false, defaultValue: '' },
     createdAt: { type: DataTypes.DATE, field: 'createdAt' },
     updatedAt: { type: DataTypes.DATE, field: 'updatedAt' },
   },
