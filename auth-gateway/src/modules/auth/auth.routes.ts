@@ -59,4 +59,7 @@ router.post('/verifyOtp', otpRateLimit, asyncHandler(authController.verifyOtp));
 // EZ-939 POST /auth/resetPassword/:userUuid — gated on verifyOtp's resetToken, not a session
 router.post('/resetPassword/:userUuid', otpRateLimit, asyncHandler(authController.resetPassword));
 
+// POST /auth/validateProviderAttribute — profile form's email/phone "already exists" check (public, as in legacy)
+router.post('/validateProviderAttribute', asyncHandler(authController.validateProviderAttribute));
+
 export default router;

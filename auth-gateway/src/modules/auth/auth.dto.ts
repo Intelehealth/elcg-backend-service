@@ -109,12 +109,25 @@ export const ResetPasswordSchema = z.object({
   resetToken: z.string().min(1, 'resetToken is required'),
 });
 
+/**
+ * `POST /auth/validateProviderAttribute` — body mirrors legacy's
+ * `checkProviderAttribute` (attributeType/attributeValue/providerUuid, all
+ * required). Validated by the controller itself (not thrown as a ZodError) so
+ * the 400 keeps legacy's `{ success, message, data }` shape.
+ */
+export const ValidateProviderAttributeSchema = z.object({
+  attributeType: z.string().min(1),
+  attributeValue: z.union([z.string(), z.number()]).transform(String).pipe(z.string().min(1)),
+  providerUuid: z.string().min(1),
+});
+
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
 export type LogoutRequest = z.infer<typeof LogoutRequestSchema>;
 export type RequestOtpRequest = z.infer<typeof RequestOtpSchema>;
 export type VerifyOtpRequest = z.infer<typeof VerifyOtpSchema>;
 export type ResetPasswordRequest = z.infer<typeof ResetPasswordSchema>;
+export type ValidateProviderAttributeRequest = z.infer<typeof ValidateProviderAttributeSchema>;
 
 /**
  * Only populated for `otpFor: 'password'` on a matched account — `otpFor:

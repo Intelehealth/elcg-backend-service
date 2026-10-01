@@ -6,6 +6,7 @@ import {
   RefreshRequestSchema,
   RequestOtpSchema,
   ResetPasswordSchema,
+  ValidateProviderAttributeSchema,
   VerifyOtpSchema,
 } from '@/modules/auth/auth.dto';
 import * as authService from '@/modules/auth/auth.service';
@@ -93,4 +94,27 @@ export function check(req: Request, res: Response): void {
     role: claims.role,
     expiresAt: claims.exp ? new Date(claims.exp * 1000).toISOString() : null,
   });
+}
+
+/**
+ * `POST /auth/validateProviderAttribute` — ported from legacy
+ * (`portal/controllers/auth.controller.js`'s `checkProviderAttribute`),
+ * including its unauthenticated access and its `{ success, message, data }`
+ * 400 bodies (not the gateway's usual `{ error }` envelope).
+ */
+export async function validateProviderAttribute(req: Request, res: Response): Promise<void> {
+  const parsed = ValidateProviderAttributeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ success: false, message: 'Bad request! Invalid arguments.', data: null });
+    return;
+  }
+  const { attributeType, attributeValue, providerUuid } = parsed.data;
+  if (!(authService.PROVIDER_ATTRIBUTE_TYPES as readonly string[]).includes(attributeType)) {
+    res
+      .status(400)
+      .json({ success: false, message: 'Bad request! Attribute type should be emailId/phoneNumber.', data: null });
+    return;
+  }
+  const result = await authService.validateProviderAttribute(attributeType, attributeValue, providerUuid);
+  res.status(200).json(result);
 }

@@ -230,3 +230,24 @@ export async function logout(
     }
   }
 }
+
+export const PROVIDER_ATTRIBUTE_TYPES = ['emailId', 'phoneNumber'] as const;
+
+/**
+ * Legacy `checkProviderAttribute` — the profile form's "already exists"
+ * check. `data` is `true` when the value is AVAILABLE (not used by another
+ * provider), `false` when it is already taken — same polarity and messages
+ * as legacy.
+ */
+export async function validateProviderAttribute(
+  attributeType: string,
+  attributeValue: string,
+  providerUuid: string,
+): Promise<{ success: true; message: string; data: boolean }> {
+  const taken = await authRepository.isProviderAttributeTaken(attributeType, attributeValue, providerUuid);
+  return {
+    success: true,
+    message: `${attributeType.toUpperCase()} ${taken ? 'already exists!' : 'does not exists!'}`,
+    data: !taken,
+  };
+}

@@ -321,6 +321,38 @@ export async function findAccountByUsername(login: string): Promise<AccountConta
 }
 
 /**
+ * Legacy `checkProviderAttribute`'s query: is this email/phone already on file
+ * (non-voided) for a non-retired provider OTHER than `providerUuid`?
+ */
+export async function isProviderAttributeTaken(
+  attributeType: string,
+  attributeValue: string,
+  providerUuid: string,
+): Promise<boolean> {
+  const attributes = await ProviderAttribute.findAll({
+    where: { valueReference: attributeValue, voided: false },
+    include: [
+      {
+        model: ProviderAttributeType,
+        as: 'attributeType',
+        where: { name: attributeType },
+        required: true,
+      },
+    ],
+  });
+  if (attributes.length === 0) return false;
+
+  const other = await Provider.findOne({
+    where: {
+      providerId: { [Op.in]: attributes.map((attribute) => attribute.providerId) },
+      retired: false,
+      uuid: { [Op.ne]: providerUuid },
+    },
+  });
+  return other !== null;
+}
+
+/**
  * Loads the provider profile hanging off the same `person_id` as the user.
  *
  * `provider.name` is NULL for 436 of the 438 active providers in this database,

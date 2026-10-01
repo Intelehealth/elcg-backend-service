@@ -3,6 +3,7 @@ import {
   findAccountByContact,
   findAccountByPhoneNumber,
   findAccountByUsername,
+  isProviderAttributeTaken,
   findUserByLogin,
   findUserByUuid,
   loadIdentity,
@@ -599,5 +600,35 @@ describe('calculateAge (via the provider payload)', () => {
     const identity = await loadIdentity(user);
 
     expect(identity.provider?.person.age).toBeNull();
+  });
+});
+
+describe('isProviderAttributeTaken', () => {
+  it('is false when no non-voided attribute of that type has the value', async () => {
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([] as never);
+
+    await expect(isProviderAttributeTaken('emailId', 'a@b.com', 'p-1')).resolves.toBe(false);
+    expect(Provider.findOne).not.toHaveBeenCalled();
+  });
+
+  it('is true when a different, non-retired provider has it', async () => {
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([{ providerId: 4 }, { providerId: 9 }] as never);
+    jest.mocked(Provider.findOne).mockResolvedValue({ providerId: 9 } as never);
+
+    await expect(isProviderAttributeTaken('phoneNumber', '9503692181', 'p-1')).resolves.toBe(true);
+    expect(Provider.findOne).toHaveBeenCalledWith({
+      where: {
+        providerId: { [Op.in]: [4, 9] },
+        retired: false,
+        uuid: { [Op.ne]: 'p-1' },
+      },
+    });
+  });
+
+  it('is false when only the provider itself (or a retired one) has it', async () => {
+    jest.mocked(ProviderAttribute.findAll).mockResolvedValue([{ providerId: 4 }] as never);
+    jest.mocked(Provider.findOne).mockResolvedValue(null as never);
+
+    await expect(isProviderAttributeTaken('emailId', 'a@b.com', 'p-1')).resolves.toBe(false);
   });
 });
