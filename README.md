@@ -7,7 +7,7 @@ This repository contains **5 independently-deployable services** (not a workspac
 | Service | Status | Purpose |
 |---|---|---|
 | `auth-gateway/` | 🟢 Active (Sprint 42) | Authentication, OTP, JWT issuance + validation, RBAC, request proxying |
-| `portal/` | ⚪ Stub | Patient / Visit / Encounter / Labour / LCG / Messages / Notifications / Sync |
+| `portal/` | 🟡 In progress | Patient / Visit / Encounter / Labour / LCG / Messages / Notifications / Sync |
 | `web-rtc/` | ⚪ Stub | LiveKit token issuance + Socket.IO v4 signalling |
 | `configuration/` | ⚪ Stub | Master data, feature flags, theme, schemas |
 | `pagerduty/` | 🔴 Retired | Replaced by Jira Service Management (Satyadeep review #11) |
