@@ -40,8 +40,8 @@ jobs:
       ENV_FILE_PATH: /home/ubuntu/deploy/portal/.env
       PEM_FOLDER_PATH: /home/ubuntu/deploy/portal/.pem
       REMOTE_HOST: ${{ secrets.REVAMP_HOST }}
-      REMOTE_USER: ${{ secrets.DEV_USER }}
-      SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_KEY }}
+      REMOTE_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -71,11 +71,11 @@ jobs:
             exit 1
           fi
           if [ -z "${REMOTE_USER:-}" ]; then
-            echo "::error::Missing deployment SSH username secret. Configure DEV_USER."
+            echo "::error::Missing deployment SSH username secret. Configure SSH_USER."
             exit 1
           fi
           if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
-            echo "::error::Missing deployment SSH private key secret. Configure DEV_SSH_KEY."
+            echo "::error::Missing deployment SSH private key secret. Configure SSH_KEY."
             exit 1
           fi
 
