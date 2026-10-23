@@ -6,9 +6,9 @@
 #   - every push to nas-ida5-development-master deploys automatically
 #
 # Required secrets:
-#   NASSTAGING_HOST — SSH hostname/IP of the server
-#   DEV_USER        — SSH username
-#   DEV_SSH_KEY     — SSH private key
+#   REVAMP_HOST — SSH hostname/IP of the server
+#   DEV_USER    — SSH username
+#   DEV_SSH_KEY — SSH private key
 #
 # Optional: create a GitHub Environment named "portal" (Settings → Environments)
 # with "Required reviewers" if deploys should need manual approval.
@@ -64,14 +64,27 @@ jobs:
           docker build -t $DOCKER_IMAGE_NAME:${{ github.sha }} ./portal
           docker save $DOCKER_IMAGE_NAME:${{ github.sha }} > app-image.tar
 
+      - name: Validate deployment secrets
+        run: |
+          if [ -z "${REMOTE_HOST:-}" ]; then
+            echo "::error::Missing deployment host secret. Configure REVAMP_HOST."
+            exit 1
+          fi
+          if [ -z "${REMOTE_USER:-}" ]; then
+            echo "::error::Missing deployment SSH username secret. Configure DEV_USER."
+            exit 1
+          fi
+          if [ -z "${SSH_PRIVATE_KEY:-}" ]; then
+            echo "::error::Missing deployment SSH private key secret. Configure DEV_SSH_KEY."
+            exit 1
+          fi
+
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          printf '%s' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # Pin the host's SSH key (trust-on-first-use) so ssh/scp below can
-          # use StrictHostKeyChecking=yes instead of trusting any host.
           ssh-keyscan -p $REMOTE_PORT -H "$REMOTE_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           chmod 600 ~/.ssh/known_hosts
 
@@ -82,8 +95,7 @@ jobs:
               -P $REMOTE_PORT \
               app-image.tar \
               $REMOTE_USER@$REMOTE_HOST:$DEPLOY_DIR/app-image.tar
-          # Values are passed in as env vars and the heredoc is quoted ('EOF'),
-          # so nothing in the script gets expanded on the GitHub runner by mistake.
+
           ssh -i ~/.ssh/deploy_key \
               -o StrictHostKeyChecking=yes \
               -p $REMOTE_PORT \
@@ -92,26 +104,25 @@ jobs:
                DEPLOY_DIR='$DEPLOY_DIR' ENV_FILE_PATH='$ENV_FILE_PATH' \
                PEM_FOLDER_PATH='$PEM_FOLDER_PATH' bash -s" <<'EOF'
           set -euo pipefail
-          # 1. Validate config BEFORE touching the running container,
-          #    so a failure here leaves the current version serving traffic.
+
           if [ ! -f "$ENV_FILE_PATH" ]; then
             echo "Error: .env file not found at $ENV_FILE_PATH"; exit 1
           fi
           if [ ! -d "$PEM_FOLDER_PATH" ]; then
             echo "Error: .pem folder not found at $PEM_FOLDER_PATH"; exit 1
           fi
-          # 2. Load the new image
+
           docker load -i "$DEPLOY_DIR/app-image.tar"
           rm -f "$DEPLOY_DIR/app-image.tar"
-          # 3. Remove the old container — Docker releases the port when it is removed
+
           docker ps -aq --filter "name=^/${IMAGE}$" | xargs -r docker rm -f
-          # 4. Wait for the port to be free
+
           port_busy() { ss -ltn "( sport = :$PORT )" | grep -q ":$PORT"; }
           for i in $(seq 1 10); do
             port_busy || break
             sleep 1
           done
-          # 5. If something still holds the port (e.g. an orphaned docker-proxy), log it and free it
+
           if port_busy; then
             echo "Port $PORT is still in use. Holder:"
             sudo -n ss -ltnp "( sport = :$PORT )" || true
@@ -121,7 +132,7 @@ jobs:
               echo "Error: port $PORT could not be freed"; exit 1
             fi
           fi
-          # 6. Start the new container
+
           docker run -d \
             --name "$IMAGE" \
             --restart unless-stopped \
@@ -131,7 +142,7 @@ jobs:
             --mount type=bind,src=/etc/letsencrypt,dst=/etc/letsencrypt,ro \
             --log-opt max-size=10m --log-opt max-file=3 \
             "$IMAGE:$TAG"
-          # 7. Clean up old portal images — keep the current one + the previous one for rollback
+
           docker images "$IMAGE" --format '{{.Repository}}:{{.Tag}}' \
             | grep -v ":${TAG}$" \
             | tail -n +2 \
@@ -148,8 +159,6 @@ jobs:
               $REMOTE_USER@$REMOTE_HOST \
               "IMAGE='$DOCKER_IMAGE_NAME' bash -s" <<'EOF'
           set -euo pipefail
-          # Wait up to 90s. If the image defines a HEALTHCHECK, wait for "healthy";
-          # otherwise just require the container to stay running without restarts.
           for i in $(seq 1 18); do
             sleep 5
             status=$(docker inspect -f '{{.State.Status}}' "$IMAGE")
@@ -164,6 +173,7 @@ jobs:
               exit 0
             fi
           done
+
           echo "Deployment FAILED — last 100 log lines:"
           docker logs --tail 100 "$IMAGE"
           if [ "$health" != "none" ]; then
