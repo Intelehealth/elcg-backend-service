@@ -1,0 +1,236 @@
+# Portal Deploy
+#
+# Builds the portal Docker image and deploys it to a single remote host.
+#
+# Triggers:
+#   - every push to dev_master deploys automatically
+#   - manual run from the Actions tab (workflow_dispatch)
+#
+# Required secrets:
+#   REVAMP_HOST     — SSH hostname/IP of the server
+#   SSH_USER        — SSH username
+#   SSH_KEY         — SSH private key
+#
+# Optional secrets:
+#   SSH_KNOWN_HOSTS — pinned known_hosts entry for REVAMP_HOST
+#                     (output of `ssh-keyscan -H <host>`). Strongly recommended:
+#                     without it the host key is trusted on first use every run.
+#
+# Optional: create a GitHub Environment named "portal" (Settings → Environments)
+# with "Required reviewers" if deploys should need manual approval.
+
+name: Portal Deploy
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [dev_master]
+
+permissions:
+  contents: read
+
+# Serialize runs: two pushes (or push + manual dispatch) must not deploy
+# concurrently. New runs queue instead of cancelling an in-flight deploy.
+concurrency:
+  group: portal-deploy
+  cancel-in-progress: false
+
+env:
+  DOCKER_IMAGE_NAME: portal
+  IMAGE_TAG: ${{ github.sha }}
+  APP_PORT: 3004
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: portal
+    defaults:
+      run:
+        # Explicit bash => GitHub runs it with -eo pipefail, so failures inside
+        # pipes (docker save | ssh ...) fail the step.
+        shell: bash
+    env:
+      REMOTE_PORT: 22
+      ENV_FILE_PATH: /home/ubuntu/deploy/portal/.env
+      PEM_FOLDER_PATH: /home/ubuntu/deploy/portal/.pem
+      # auth-gateway's PUBLIC key — the portal verifies the access tokens the
+      # gateway signs, so it must be the gateway's own file (its deploy uses
+      # KEYS_FOLDER_PATH=/home/ubuntu/deploy/auth-gateway/keys). Only this one
+      # file is mounted: the gateway's private key never enters this container.
+      JWT_PUBLIC_KEY_FILE: /home/ubuntu/deploy/auth-gateway/keys/jwt-public.pem
+      REMOTE_HOST: ${{ secrets.REVAMP_HOST }}
+      REMOTE_USER: ${{ secrets.SSH_USER }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY }}
+      SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+    steps:
+      # Fail fast, before spending minutes on a build that can't be deployed.
+      - name: Validate deployment secrets
+        run: |
+          missing=0
+          for pair in REMOTE_HOST:REVAMP_HOST REMOTE_USER:SSH_USER SSH_PRIVATE_KEY:SSH_KEY; do
+            var="${pair%%:*}"; secret="${pair##*:}"
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Missing deployment secret. Configure $secret."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Layer cache is kept in the GitHub Actions cache between runs.
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./portal
+          load: true
+          tags: ${{ env.DOCKER_IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=portal
+          cache-to: type=gha,mode=max,scope=portal
+
+      - name: Set up SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          install -m 600 /dev/null ~/.ssh/deploy_key
+          # Trailing newline matters: OpenSSH rejects keys without one.
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+
+          if [ -n "${SSH_KNOWN_HOSTS:-}" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::SSH_KNOWN_HOSTS not set; trusting host key from ssh-keyscan."
+            ssh-keyscan -p "$REMOTE_PORT" -H "$REMOTE_HOST" > ~/.ssh/known_hosts 2>/dev/null || true
+          fi
+          if [ ! -s ~/.ssh/known_hosts ]; then
+            echo "::error::Could not obtain a host key for $REMOTE_HOST."
+            exit 1
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+          # One alias instead of repeating -i/-p/-o on every command.
+          cat > ~/.ssh/config <<EOF
+          Host deploy
+            HostName $REMOTE_HOST
+            User $REMOTE_USER
+            Port $REMOTE_PORT
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ServerAliveInterval 30
+            ServerAliveCountMax 4
+          EOF
+          chmod 600 ~/.ssh/config
+
+      # Stream the image straight into the remote Docker daemon: no tar file on
+      # either disk, and compression cuts transfer time.
+      - name: Transfer image
+        run: |
+          docker save "$DOCKER_IMAGE_NAME:$IMAGE_TAG" \
+            | gzip -1 \
+            | ssh deploy 'gunzip | docker load'
+
+      - name: Deploy
+        run: |
+          ssh deploy \
+            "IMAGE='$DOCKER_IMAGE_NAME' TAG='$IMAGE_TAG' PORT='$APP_PORT' \
+             ENV_FILE_PATH='$ENV_FILE_PATH' PEM_FOLDER_PATH='$PEM_FOLDER_PATH' \
+             JWT_PUBLIC_KEY_FILE='$JWT_PUBLIC_KEY_FILE' bash -s" <<'EOF'
+          set -euo pipefail
+
+          # Pre-flight checks run before the old container is touched.
+          if [ ! -f "$ENV_FILE_PATH" ]; then
+            echo "Error: .env file not found at $ENV_FILE_PATH"; exit 1
+          fi
+          if [ ! -d "$PEM_FOLDER_PATH" ]; then
+            echo "Error: .pem folder not found at $PEM_FOLDER_PATH"; exit 1
+          fi
+          # Without it every authenticated request fails with AUTH_MISCONFIGURED.
+          if [ ! -f "$JWT_PUBLIC_KEY_FILE" ]; then
+            echo "Error: auth-gateway public key not found at $JWT_PUBLIC_KEY_FILE"; exit 1
+          fi
+          if ! docker image inspect "$IMAGE:$TAG" >/dev/null 2>&1; then
+            echo "Error: image $IMAGE:$TAG was not loaded"; exit 1
+          fi
+
+          docker ps -aq --filter "name=^/${IMAGE}$" | xargs -r docker rm -f
+
+          port_busy() { ss -ltn "( sport = :$PORT )" | grep -q ":$PORT"; }
+          for _ in $(seq 1 10); do
+            port_busy || break
+            sleep 1
+          done
+
+          if port_busy; then
+            echo "Port $PORT is still in use. Holder:"
+            sudo -n ss -ltnp "( sport = :$PORT )" || true
+            sudo -n fuser -k "$PORT/tcp" || true
+            sleep 2
+            if port_busy; then
+              echo "Error: port $PORT could not be freed"; exit 1
+            fi
+          fi
+
+          docker run -d \
+            --name "$IMAGE" \
+            --restart unless-stopped \
+            -p "0.0.0.0:$PORT:$PORT" \
+            --env-file "$ENV_FILE_PATH" \
+            --mount type=bind,src="$PEM_FOLDER_PATH",dst=/app/.pem \
+            --mount type=bind,src="$JWT_PUBLIC_KEY_FILE",dst=/app/keys/jwt-public.pem,ro \
+            --mount type=bind,src=/etc/letsencrypt,dst=/etc/letsencrypt,ro \
+            --log-opt max-size=10m --log-opt max-file=3 \
+            "$IMAGE:$TAG"
+
+          # Keep the current image plus the most recent previous one (for a
+          # manual rollback); remove older tags.
+          docker images "$IMAGE" --format '{{.Repository}}:{{.Tag}}' \
+            | grep -v ":${TAG}$" \
+            | tail -n +2 \
+            | xargs -r docker rmi || true
+          docker image prune -f
+          echo "Portal deployment completed"
+          EOF
+
+      - name: Verify deployment
+        run: |
+          ssh deploy "IMAGE='$DOCKER_IMAGE_NAME' bash -s" <<'EOF'
+          set -euo pipefail
+
+          inspect() { docker inspect -f "$1" "$IMAGE" 2>/dev/null || echo "missing"; }
+
+          health=none
+          for i in $(seq 1 18); do
+            sleep 5
+            status=$(inspect '{{.State.Status}}')
+            health=$(inspect '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')
+            restarts=$(inspect '{{.RestartCount}}')
+            echo "[$((i*5))s] status=$status health=$health restarts=$restarts"
+
+            if [ "$status" != "running" ] || [ "$restarts" != "0" ] || [ "$health" = "unhealthy" ]; then
+              break
+            fi
+            # With a HEALTHCHECK wait for "healthy"; without one, accept 15s of
+            # stable running with no restarts.
+            if [ "$health" = "healthy" ] || { [ "$health" = "none" ] && [ "$i" -ge 3 ]; }; then
+              echo "Portal deployment successful! Ports: $(docker port "$IMAGE" | tr '\n' ' ')"
+              exit 0
+            fi
+          done
+
+          echo "Deployment FAILED — last 100 log lines:"
+          docker logs --tail 100 "$IMAGE" 2>&1 || true
+          if [ "$health" != "none" ] && [ "$health" != "missing" ]; then
+            echo "Last healthcheck results:"
+            docker inspect -f '{{range .State.Health.Log}}{{.Output}}{{end}}' "$IMAGE" | tail -20
+          fi
+          exit 1
+          EOF
+
+      - name: Clean up SSH credentials
+        if: always()
+        run: rm -f ~/.ssh/deploy_key ~/.ssh/config
