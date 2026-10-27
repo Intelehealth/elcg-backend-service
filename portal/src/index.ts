@@ -12,6 +12,7 @@ import { connectOpenmrsDb, openmrsSequelize } from '@/db/openmrs';
  * HTTP, e.g. behind a reverse proxy that already terminates TLS, or local dev.
  */
 function createServer(app: http.RequestListener): http.Server | https.Server {
+console.log(env.NODE_ENV) 
   if (env.NODE_ENV === 'production') {
     const options = {
       key: fs.readFileSync(env.SSL_KEY_PATH as string),
